@@ -1,7 +1,7 @@
 # OpenAI-Realtime-Toolkit
 
 On-device audio AI for React Native, powered by the [Switchboard SDK](https://switchboard.audio).
-OpenAIRealtimeToolkit makes OpenAI Realtime voice models easy to use, with built-in tool calling and local turn-handling tuning.
+OpenAIRealtimeToolkit makes OpenAI Realtime voice models easy to use along with tool calling and customizable local turn-detection and barge-in handling.
 
 ## Platforms
 
