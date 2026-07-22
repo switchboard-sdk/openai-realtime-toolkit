@@ -16,9 +16,7 @@ module.exports = {
         cxxModuleCMakeListsPath: 'CMakeLists.txt',
         cxxModuleHeaderName: 'NativeOpenAIRealtimeToolkit',
       },
-      ios: {
-        podspecPath: __dirname + '/OpenAIRealtimeToolkit.podspec',
-      },
+      // No `ios` entry needed: RN's Apple autolinking auto-discovers the podspec.
     },
   },
 };
