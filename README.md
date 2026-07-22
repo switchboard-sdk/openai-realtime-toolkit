@@ -1,24 +1,31 @@
-# OpenAIRealtimeToolkit
+# OpenAI-Realtime-Toolkit
 
 On-device audio AI for React Native, powered by the [Switchboard SDK](https://switchboard.audio).
-OpenAIRealtimeToolkit uses the Switchboard **SileroVAD**, **SmartTurn**, **Onnx**, and **OpenAI** extensions and
-drives them from JavaScript over a JSON-RPC channel into a shared C++ TurboModule.
+OpenAIRealtimeToolkit makes OpenAI Realtime voice models easy to use, with built-in tool calling and local turn-handling tuning.
 
-- **iOS + Android**, new architecture (TurboModules), one shared C++ core.
-- Switchboard binaries are fetched from Switchboard's hosting at build time — nothing to host yourself, no large binaries in git or the npm tarball.
+## Platforms
+
+| Platform | Status      |
+| -------- | ----------- |
+| iOS      | Supported   |
+| Android  | Supported   |
 
 ## Install
-
-Run these in **your React Native app** (not in this library repo):
 
 ```sh
 npm install @synervoz/openai-realtime-toolkit
 ```
 
-Requires React Native **≥ 0.76** (new architecture). Developed with RN 0.86.
+### Requirements
 
-> Trying it out inside this repo? The library itself has no app to build — use
-> the bundled example app instead: see [Running the example](#running-the-example).
+| Requirement      | Minimum            |
+| ---------------- | ------------------ |
+| React Native     | 0.76+              |
+| New Architecture | Required (enabled) |
+| iOS              | 13.4+              |
+| Node.js          | 22+                |
+
+OpenAIRealtimeToolkit is a bare React Native **C++ TurboModule** and requires the **[New Architecture](https://reactnative.dev/architecture/landing-page)**. It works in both Expo (prebuild) and bare React Native apps.
 
 ### iOS
 
@@ -27,10 +34,6 @@ From **your app's** `ios/` directory:
 ```sh
 cd ios && pod install
 ```
-
-The podspec's `prepare_command` downloads the Switchboard xcframeworks
-(SwitchboardSDK / SileroVAD / SmartTurn / Onnx) into the pod's `ios/Frameworks/`
-and vendors them. No extra steps.
 
 Add a microphone usage string to your app's `Info.plist` (required — without it the
 app crashes when the mic is requested):
@@ -149,6 +152,9 @@ That's the whole app — `start()` handles mic permission and connects, and the 
 call the `get_time` tool (try asking it the time). Turn-detection tuning and styling are
 opt-in; see below and [`example/App.tsx`](example/App.tsx) for the fuller version.
 
+> [!NOTE]
+> Your Switchboard `APP_ID` and `APP_SECRET` are **safe to bundle in your application**. They function like a publishing key and are intended to be distributed with your app.
+
 ### Lifecycle & placement
 
 Mount `OpenAIRealtimeToolkitProvider` **once, at your app root** (above your navigator). It
@@ -167,11 +173,9 @@ call the `useOpenAIRealtimeToolkit()` hook from any screen.
 
 ### Runtime settings
 
-`instructions` and on-device turn handling come off the single `useOpenAIRealtimeToolkit()` hook.
-The turn-handling controls are grouped under `localTurnHandling` — the same name as the
-provider prop — so the on/off switch and its tuning live together. Any can be set as
-**initial props** on the provider (above) **or** changed live from the hook — changes
-apply without dropping the OpenAI session:
+`instructions` and turn handling both come off the `useOpenAIRealtimeToolkit()` hook and can
+also be seeded as **props** on the provider. Changes through the hook apply live, without
+dropping the OpenAI session.
 
 ```tsx
 const { instructions, setInstructions, localTurnHandling } = useOpenAIRealtimeToolkit();
@@ -180,25 +184,22 @@ localTurnHandling.enabled;            // on-device turn detection vs OpenAI's se
 localTurnHandling.setEnabled(true);
 ```
 
-The `config` under `localTurnHandling` is the tuning, and applies only while `enabled` is
-true. A **preset is just a full knob set** — imported as a value. Read a knob as a plain
-value; write one or several with a patch (partial = tweak, full set = select a preset):
+`localTurnHandling.config` is the tuning (used only while `enabled`). Read a knob as a value;
+write with `setConfig` — a partial patch tweaks, a full knob set selects a preset:
 
 ```tsx
 import { QUIET_CONFIG, NOISY_CONFIG } from '@synervoz/openai-realtime-toolkit';
 
 const { config, setConfig } = localTurnHandling;
 
-config.pauseToleranceMs;                        // → number (hover shows the doc)
-setConfig({ pauseToleranceMs: 3000 });          // tweak one knob (keeps the rest)
-setConfig(NOISY_CONFIG);                         // "select" a preset (overwrites all knobs)
-setConfig({ ...QUIET_CONFIG, pauseToleranceMs: 3000 });  // a preset with a tweak
+config.pauseToleranceMs;                        // read one knob (hover shows the doc)
+setConfig({ pauseToleranceMs: 3000 });          // tweak one (keeps the rest)
+setConfig(NOISY_CONFIG);                         // select a preset (overwrites all)
+setConfig({ ...QUIET_CONFIG, pauseToleranceMs: 3000 });  // preset + tweak
 ```
 
-Seed the initial state declaratively via the `localTurnHandling` prop:
-`localTurnHandling={{ enabled: true, config: QUIET_CONFIG }}`. A partial `config` patch
-merges over the current values; use `DEFAULT_CONFIG` as a base to reset from scratch:
-`setConfig({ ...DEFAULT_CONFIG, ...tweaks })`.
+Or seed it on the provider: `localTurnHandling={{ enabled: true, config: QUIET_CONFIG }}`.
+Reset from scratch with `DEFAULT_CONFIG` as the base: `setConfig({ ...DEFAULT_CONFIG, ...tweaks })`.
 
 #### Config knobs
 
@@ -288,22 +289,6 @@ See [`example/App.tsx`](example/App.tsx) for the full screen.
 | `DEFAULT_CONFIG` | Every knob at its default — the base for a from-scratch replace. |
 | `LocalTurnConfig` / `KNOB_SPECS` | Turn-config value shape (read type) + static per-knob metadata (label / min / max / options) for building a tuning UI. |
 | `OpenAIRealtimeToolkitProviderProps` / `OpenAIRealtimeToolkitContextValue` / `LocalTurnHandling` / `OpenAIRealtimeToolkitConnectionStatus` | Provider-prop, hook-value, turn-handling, and connection-status types. |
-| `getDocumentsPath()` | Absolute path to the app's documents directory (for recordings/logs). |
-
-## Architecture
-
-```
-JS:   SwitchboardClient ──▶ NativeModuleRPCClient ──▶ (JSON-RPC 2.0 string)
-                                                          │
-native (cpp/NativeOpenAIRealtimeToolkit.cpp):  processCommand ──▶ switchboard::SwitchboardJSONRPC
-                                   constructor loads SileroVAD / Onnx / OpenAI / SmartTurn(iOS)
-                                   SDK events ──▶ emitOnEventReceived ──▶ JS callback
-```
-
-- **JS layer** (`src/`): the spec + JSON-RPC client classes.
-- **Shared C++** (`cpp/`): the entire engine — wraps `SwitchboardJSONRPC`, loads extensions, emits events. Identical for both platforms.
-- **iOS** (`ios/`): `OpenAIRealtimeToolkitModuleProvider` constructs the C++ module (registered via `codegenConfig.ios.modulesProvider`); `scripts/download-ios-frameworks.sh` fetches the binaries.
-- **Android** (`android/`): `CMakeLists.txt` builds the cpp and links Switchboard via Prefab; registered through RN C++ autolinking (`react-native.config.js`).
 
 ## Running the example
 
@@ -311,28 +296,9 @@ native (cpp/NativeOpenAIRealtimeToolkit.cpp):  processCommand ──▶ switchbo
 demonstrates an OpenAI Realtime voice assistant with on-device turn detection,
 noise presets, and a tool call.
 
-```sh
-cd example
-npm install                      # symlinks the library via file:..
-# iOS (CocoaPods pinned via example/Gemfile)
-bundle install                   # one-time: installs the pinned `pod` tool
-cd ios && bundle exec pod install && cd ..
-npm run ios
-# Android (no extra config)
-npm run android
-```
+> [!TIP]
+> The example ships with built-in Switchboard demo credentials, so you can run it
+> without creating a Switchboard account — you only need to add your own OpenAI API key.
 
-Add your Switchboard + OpenAI credentials in [`example/App.tsx`](example/App.tsx)
-first. See [example/README.md](example/README.md) for details.
-
-## Development
-
-```sh
-npm run build       # tsc → dist/ (JS + .d.ts); also runs on publish via prepare
-npm run typecheck   # tsc --noEmit
-npm run lint        # ESLint
-npm run format      # Prettier
-```
-
-`main`/`types` resolve to the built `dist/`; `react-native`/`source` resolve to
-`src/` so Metro uses the TypeScript directly (no prebuild needed in dev). 
+See **[example/README.md](example/README.md)** for setup and run instructions
+(credentials, install, iOS device signing, Android).

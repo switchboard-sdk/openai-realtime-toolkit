@@ -1,18 +1,27 @@
 # OpenAIRealtimeToolkit example
 
 A minimal OpenAI Realtime voice assistant built on OpenAIRealtimeToolkit:
-**microphone → `OpenAI.Realtime` → speaker**, with a `Silero.VAD` tap for
-voice-activity events. React Native 0.86, new architecture.
+**microphone → `OpenAI.Realtime` → speaker**, with on-device turn handling
+(Silero VAD + SmartTurn) and barge-in, live tuning, and a tool call. React
+Native 0.86, new architecture.
 
 ## 1. Credentials
 
-Edit [`App.tsx`](App.tsx) and set:
+**Switchboard** — the app ships with working demo credentials
+(`SWITCHBOARD_APP_ID` / `SWITCHBOARD_APP_SECRET` in [`App.tsx`](App.tsx)), so
+there's nothing to configure to try it out. Swap in your own from
+[console.switchboard.audio](https://console.switchboard.audio) for your real app.
 
-```ts
-const SWITCHBOARD_APP_ID = 'YOUR_APP_ID';      // console.switchboard.audio
-const SWITCHBOARD_APP_SECRET = 'YOUR_APP_SECRET';
-const OPENAI_API_KEY = 'YOUR_OPENAI_API_KEY';
+**OpenAI** — provide your own key. The app reads it from `@env`
+(via `react-native-dotenv`), so it goes in a `.env` file, not in source:
+
+```sh
+cp .env.example .env
+# then edit .env and set your key:
+# OPENAI_API_KEY=sk-...
 ```
+
+`.env` is gitignored; only the `.env.example` template is committed.
 
 ## 2. Install
 
@@ -105,6 +114,14 @@ npm run android
 
 ## 4. Try it
 
-Tap **Start**, grant microphone permission, and talk — audio streams to the
-OpenAI Realtime model and its reply plays back. The **Events** log shows
-Switchboard events (VAD activity, etc.) arriving over the JSON-RPC channel.
+Tap **Start talking**, grant microphone permission, and talk — audio streams to
+the OpenAI Realtime model and its reply plays back. The live **You / Assistant**
+transcripts appear under **OpenAI**. Things to try:
+
+- **Local turn handling and Barge-In** — toggle it on to run turn detection
+  on-device (Silero VAD + SmartTurn) instead of OpenAI's `server_vad`; talk over
+  the assistant to cut it off.
+- **Noise presets** — with turn handling on, switch between **quiet / balanced /
+  noisy**, and nudge **pause tolerance** live with the stepper.
+- **Tool call** — ask it to *change the background color*; the model calls the
+  app's `set_background_color` tool and the screen updates.
