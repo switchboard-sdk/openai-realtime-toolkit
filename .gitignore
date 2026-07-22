@@ -1,0 +1,111 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Linker files
+*.ilk
+
+# Debugger Files
+*.pdb
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+*.so.*
+
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Build directories
+build/
+Build/
+build-*/
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+install_manifest.txt
+compile_commands.json
+
+# Temporary files
+*.tmp
+*.log
+*.bak
+*.swp
+
+# vcpkg
+vcpkg_installed/
+
+# debug information files
+*.dwo
+
+# test output & cache
+Testing/
+.cache/
+
+# Build outputs
+out/
+
+# Node / React Native
+node_modules/
+lib/
+dist/
+*.tgz
+
+# Jest
+coverage/
+
+# CocoaPods
+Pods/
+Podfile.lock
+
+# Switchboard frameworks — downloaded by scripts/download-ios-frameworks.sh
+# (podspec prepare_command). Never committed; re-fetched on a clean checkout.
+ios/Frameworks/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Android / Gradle
+.gradle/
+.cxx/
+*.aar
+local.properties
+
+# Xcode (generated projects live under build/ which is already ignored; the
+# React Native example app's own .xcodeproj is intentionally tracked)
+DerivedData/
+*.xcuserstate
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store

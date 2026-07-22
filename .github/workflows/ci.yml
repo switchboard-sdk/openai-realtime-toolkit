@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install
+      - run: npm run typecheck
+
+  test:
+    name: Jest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install
+      # Runs the TS unit suite and enforces the coverage thresholds in jest.config.js.
+      - run: npm run test:cov
+
+  ios-frameworks:
+    name: iOS framework download
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Smoke-test the podspec prepare_command: the Switchboard xcframeworks
+      # must be fetchable from Switchboard's public S3 and unzip into the layout
+      # the podspec expects.
+      - name: Download Switchboard iOS frameworks
+        run: bash scripts/download-ios-frameworks.sh
+      - name: Verify layout
+        run: |
+          test -d ios/Frameworks/SwitchboardSDK/ios/SwitchboardSDK.xcframework
+          test -f ios/Frameworks/SwitchboardSDK/ios/include/switchboard/SwitchboardJSONRPC.hpp
+          test -d ios/Frameworks/SwitchboardSileroVAD/ios/SwitchboardSileroVAD.xcframework
+          test -d ios/Frameworks/SwitchboardSmartTurn/ios/SwitchboardSmartTurn.xcframework
+          test -d ios/Frameworks/SwitchboardOnnx/ios/SwitchboardOnnx.xcframework

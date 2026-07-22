@@ -1,0 +1,103 @@
+{
+  "name": "@synervoz/openai-realtime-toolkit",
+  "version": "0.1.0",
+  "description": "React Native library for on-device audio AI pipelines (VAD, turn detection, ONNX) powered by the Switchboard SDK.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "react-native": "src/index",
+  "source": "src/index",
+  "files": [
+    "src",
+    "dist",
+    "ios",
+    "android",
+    "cpp",
+    "scripts",
+    "OpenAIRealtimeToolkit.podspec",
+    "react-native.config.js",
+    "!ios/Frameworks",
+    "!android/build",
+    "!**/__tests__",
+    "!**/__mocks__",
+    "!**/*.test.*",
+    "!**/*.spec.*",
+    "!src/test-helpers.ts",
+    "!**/.*"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "format": "prettier --write .",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "react-native",
+    "ios",
+    "android",
+    "audio",
+    "vad",
+    "silero",
+    "smart-turn",
+    "onnx",
+    "switchboard",
+    "openai",
+    "realtime",
+    "openai-realtime-toolkit"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:switchboard-sdk/openai-realtime-toolkit.git"
+  },
+  "homepage": "https://github.com/switchboard-sdk/openai-realtime-toolkit#readme",
+  "bugs": {
+    "url": "https://github.com/switchboard-sdk/openai-realtime-toolkit/issues"
+  },
+  "author": "Synervoz <contact@synervoz.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-native": ">=0.76.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@react-native/babel-preset": "^0.86.0",
+    "@react-native/eslint-config": "0.86.0",
+    "@react-native/jest-preset": "^0.86.0",
+    "@react-native/typescript-config": "0.86.0",
+    "@testing-library/react-native": "^13.3.3",
+    "@types/jest": "^29.5.14",
+    "@types/react": "^19.2.0",
+    "babel-jest": "^29.7.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^10.0.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.0.0",
+    "react": "19.2.7",
+    "react-native": "0.86.0",
+    "react-test-renderer": "^19.2.7",
+    "typescript": "^5.3.0"
+  },
+  "codegenConfig": {
+    "name": "RNOpenAIRealtimeToolkitSpec",
+    "type": "modules",
+    "jsSrcsDir": "src",
+    "android": {
+      "javaPackageName": "com.synervoz.openairealtimetoolkit"
+    },
+    "ios": {
+      "modulesProvider": {
+        "OpenAIRealtimeToolkit": "OpenAIRealtimeToolkitModuleProvider"
+      }
+    }
+  }
+}

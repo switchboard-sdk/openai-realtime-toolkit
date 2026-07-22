@@ -1,0 +1,25 @@
+buildscript {
+    ext {
+        buildToolsVersion = "36.0.0"
+        minSdkVersion = 24
+        compileSdkVersion = 36
+        targetSdkVersion = 36
+        // Must match the NDK the Switchboard SDK was built with (r29 / clang 21).
+        // The prebuilt Switchboard .so reference __cxa_init_primary_exception,
+        // a libc++ symbol absent from RN 0.86's default r27 libc++_shared.so, so
+        // the app must bundle r29's libc++_shared.so or dlopen fails at launch.
+        ndkVersion = "29.0.14206865"
+        kotlinVersion = "2.1.20"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle")
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+    }
+}
+
+apply plugin: "com.facebook.react.rootproject"

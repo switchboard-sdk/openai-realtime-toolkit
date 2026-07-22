@@ -1,0 +1,8 @@
+node_modules/
+dist/
+example/
+ios/Frameworks/
+Pods/
+build/
+*.log
+.DS_Store
