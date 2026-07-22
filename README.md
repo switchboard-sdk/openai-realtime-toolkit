@@ -277,18 +277,36 @@ See [`example/App.tsx`](example/App.tsx) for the full screen.
 
 ## API
 
-| Export | Description |
+The public surface is the provider, the `useOpenAIRealtimeToolkit()` hook, and `useTool` — plus config presets and types.
+
+### Exports
+
+| Import | What it is |
 | --- | --- |
-| `OpenAIRealtimeToolkitProvider` | React provider. Props: `{ appId, appSecret, openAIApiKey, instructions?, localTurnHandling?: { enabled?, config? } }`. The default entry point. |
-| `useOpenAIRealtimeToolkit()` | Hook → `{ isRunning, error, connectionStatus, inputTranscription, outputTranscription, start, stop, release, hasMicrophonePermission, requestMicrophonePermission, instructions, setInstructions, localTurnHandling, registerTool, unregisterTool }`. `stop()` pauses (engine kept for a fast restart); `release()` frees it. |
-| `localTurnHandling` (on the hook) | `{ enabled, setEnabled, config, setConfig }` — on-device turn detection + barge-in. Read a knob as `config.x`; write with `setConfig({ x })` (partial = tweak, full set = select a preset). Config applies only while `enabled`. |
-| `useTool(tool)` | Register a tool for the model to call, scoped to the component: registers on mount, unregisters on unmount, re-registers on `name`/`description`/`parameters` change, and keeps the `handler` live (no stale closures). The usual way to add a tool. |
-| `registerTool(tool)` / `unregisterTool(name)` (on the hook) | Imperative escape hatch for dynamic tool sets — add (replacing any same-named tool) or remove by name. Prefer `useTool` unless the set is dynamic. |
-| `OpenAIRealtimeToolkitTool` | `{ name, description, parameters?, handler }` — a tool the model can call. `parameters` (JSON Schema) is optional; omit for a no-arg tool. |
-| `QUIET_CONFIG` / `BALANCED_CONFIG` / `NOISY_CONFIG` | Curated presets as full `LocalTurnConfig` value sets — pass to `setConfig(...)` or the `localTurnHandling.config` seed. |
-| `DEFAULT_CONFIG` | Every knob at its default — the base for a from-scratch replace. |
-| `LocalTurnConfig` / `KNOB_SPECS` | Turn-config value shape (read type) + static per-knob metadata (label / min / max / options) for building a tuning UI. |
-| `OpenAIRealtimeToolkitProviderProps` / `OpenAIRealtimeToolkitContextValue` / `LocalTurnHandling` / `OpenAIRealtimeToolkitConnectionStatus` | Provider-prop, hook-value, turn-handling, and connection-status types. |
+| `OpenAIRealtimeToolkitProvider` | Provider and entry point. Props: `{ appId, appSecret, openAIApiKey, instructions?, localTurnHandling?: { enabled?, config? } }`. |
+| `useOpenAIRealtimeToolkit()` | The main hook — everything you drive the assistant with ([below](#the-useopenairealtimetoolkit-hook)). |
+| `useTool(tool)` | Register a tool for the model to call, scoped to the component. See [Tool calling](#tool-calling). |
+| `OpenAIRealtimeToolkitTool` | Tool shape: `{ name, description, parameters?, handler }`. `parameters` (JSON Schema) is optional — omit for a no-arg tool. |
+| `QUIET_CONFIG` / `BALANCED_CONFIG` / `NOISY_CONFIG` / `DEFAULT_CONFIG` | Turn-config presets (full `LocalTurnConfig` sets) for `setConfig(...)`. `DEFAULT_CONFIG` is the base for a from-scratch replace. |
+| Types | `LocalTurnConfig`, `OpenAIRealtimeToolkitProviderProps`, `OpenAIRealtimeToolkitContextValue`, `LocalTurnHandling`, `OpenAIRealtimeToolkitConnectionStatus`. |
+
+### The `useOpenAIRealtimeToolkit()` hook
+
+```ts
+const {
+  isRunning, error, connectionStatus,        // engine + session status
+  inputTranscription, outputTranscription,   // live You / Assistant transcripts
+  hasMicrophonePermission, requestMicrophonePermission,
+  start, stop, release,                       // engine lifecycle
+  instructions, setInstructions,              // system prompt (applies live)
+  localTurnHandling,                          // on-device turn detection + barge-in
+  registerTool, unregisterTool,               // dynamic tool sets
+} = useOpenAIRealtimeToolkit();
+```
+
+- **`stop()`** pauses but keeps the engine warm for a fast restart; **`release()`** frees native resources (the next `start()` rebuilds).
+- **`localTurnHandling`** → `{ enabled, setEnabled, config, setConfig }`. Read a knob as `config.x`; write with `setConfig({ x })` (partial = tweak, full set = select a preset). Applies only while `enabled` — see [Runtime settings](#runtime-settings).
+- **`registerTool(tool)` / `unregisterTool(name)`** — imperative escape hatch for dynamic tool sets (add replaces a same-named tool). Prefer `useTool`.
 
 ## Running the example
 
