@@ -9,6 +9,7 @@ jest.mock('./OpenAIRealtimeToolkit', () => {
   let openaiListener: ((e: any) => void) | null = null
   const openAIRealtimeToolkit = {
     initialize: jest.fn(),
+    isRunning: false,
     start: jest.fn(() => Promise.resolve()),
     stop: jest.fn(),
     release: jest.fn(),
@@ -40,6 +41,7 @@ import { QUIET_CONFIG, NOISY_CONFIG } from './presets'
 const mockModule = jest.requireMock('./OpenAIRealtimeToolkit') as {
   openAIRealtimeToolkit: {
     initialize: jest.Mock
+    isRunning: boolean
     start: jest.Mock
     stop: jest.Mock
     release: jest.Mock

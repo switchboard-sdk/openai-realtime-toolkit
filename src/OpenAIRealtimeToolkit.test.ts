@@ -154,26 +154,33 @@ describe('initialize', () => {
     expect(initCalls.length).toBe(2)
   })
 
-  it('treats "already been initialized" as success so a reload does not red-box', () => {
+  it('re-adopts the live engine on reload instead of re-initializing or duplicating', async () => {
+    // Simulate a JS reload: the native SDK is already initialized and still owns
+    // a running engine.
     scriptNative((req) => {
-      if (req.method === 'callAction' && req.params?.actionName === 'initialize') {
-        return makeRpcResponse(undefined, {
-          code: -32000,
-          message: 'SwitchboardSDK has already been initialized.',
-        })
+      if (req.method === 'getValue' && req.params?.key === 'isInitialized') {
+        return makeRpcResponse(true)
+      }
+      if (req.method === 'getValue' && req.params?.key === 'engines') {
+        return makeRpcResponse(['engine-7'])
+      }
+      if (req.method === 'getValue' && req.params?.key === 'isRunning') {
+        return makeRpcResponse(true)
+      }
+      if (req.method === 'callAction' && req.params?.actionName === 'createEngine') {
+        return makeRpcResponse('engine-NEW')
       }
       return makeRpcResponse(null)
     })
     const ea = createOpenAIRealtimeToolkit()
-    // The native singleton survives JS reloads, so a repeat init reports
-    // "already initialized" — that must not throw.
-    expect(() => ea.initialize(CREDS)).not.toThrow()
-    // Marked initialized, so a second call is a no-op (only one init sent).
     ea.initialize(CREDS)
-    const initCalls = sentCommands().filter(
-      (c) => c.method === 'callAction' && c.params?.actionName === 'initialize'
-    )
-    expect(initCalls.length).toBe(1)
+    // Already initialized natively → no re-initialize sent.
+    expect(commandFor('initialize')).toBeUndefined()
+    // Adopted the surviving engine and rehydrated its running state.
+    expect(ea.isRunning).toBe(true)
+    // A later start() reuses the adopted engine — never creates a second one.
+    await ea.start()
+    expect(commandFor('createEngine')).toBeUndefined()
   })
 })
 

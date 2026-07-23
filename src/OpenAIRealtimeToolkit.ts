@@ -222,32 +222,30 @@ export function createOpenAIRealtimeToolkit() {
     preset = options.preset ?? 'balanced'
     customKnobs = options.customKnobs ?? {}
     const c = ensureClient()
-    const res = c.callAction('switchboard', 'initialize', {
-      appID: options.appId,
-      appSecret: options.appSecret,
-      extensions: {
-        Silero: {},
-        Onnx: {},
-        SmartTurn: {},
-        OpenAI: { apiKey: options.openAIApiKey },
-      },
-    })
-    if (res.error) {
-      const msg = res.error.message ?? ''
-      // The native SDK is a process-global singleton that survives JS bundle
-      // reloads (Fast Refresh / dev reopen); a repeat initialize then reports
-      // "already been initialized". Treat that as success so the app doesn't
-      // red-box on reload.
-      // NOTE (stopgap): matching on error text is brittle — a stable error code
-      // or an SDK init-state query would be more robust.
-      if (/already.*initialized/i.test(msg)) {
-        initialized = true
-        return
+    // The native SwitchboardSDK is a process-global singleton that survives JS
+    // bundle reloads (Fast Refresh / dev reopen). Ask it whether it's already
+    // initialized rather than re-initializing blindly (which errors on reload).
+    if (c.getValue('switchboard', 'isInitialized').result !== true) {
+      const res = c.callAction('switchboard', 'initialize', {
+        appID: options.appId,
+        appSecret: options.appSecret,
+        extensions: {
+          Silero: {},
+          Onnx: {},
+          SmartTurn: {},
+          OpenAI: { apiKey: options.openAIApiKey },
+        },
+      })
+      // Genuine config problems (missing fields, bad license) surface here.
+      if (res.error) {
+        throw new Error(`Switchboard initialization failed: ${res.error.message}`)
       }
-      // Genuine config problems (missing fields, bad license) come back here —
-      // surface them instead of leaving the engine half-initialized.
-      throw new Error(`Switchboard initialization failed: ${msg}`)
     }
+    // Re-adopt an engine that outlived the reload so start() reuses it instead
+    // of spawning a second one; seed `running` from its live state.
+    const engines = c.getValue('switchboard', 'engines').result
+    engineId = Array.isArray(engines) && engines.length > 0 ? String(engines[0]) : null
+    running = engineId !== null && c.getValue(engineId, 'isRunning').result === true
     initialized = true
   }
 

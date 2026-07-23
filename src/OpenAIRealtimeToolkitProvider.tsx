@@ -148,6 +148,9 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
       preset: 'custom',
       customKnobs: knobsToPreset(valuesRef.current),
     })
+    // The native engine can outlive a JS reload still running — reflect that so
+    // the UI shows the live state instead of resetting to idle.
+    setIsRunning(ea.isRunning)
 
     // Consume the internal OpenAI event channel and re-surface only the few
     // things worth exposing. Raw events stay internal to OpenAIRealtimeToolkit.
