@@ -43,18 +43,16 @@ const INSTRUCTIONS =
 export default function App(): React.JSX.Element {
   return (
     <SafeAreaProvider>
-      {/* Turn on on-device turn handling and seed its tuning. `config` starts from
-          the quiet preset with a relaxed pause tolerance — a preset is just a full
-          knob set, so spread one to tweak it. Change it at runtime via
-          useOpenAIRealtimeToolkit().localTurnHandling (see Screen below). */}
+      {/* On-device turn handling starts off; toggle it at runtime via the hook.
+          `config` seeds its tuning for when it's enabled. */}
       <OpenAIRealtimeToolkitProvider
         appId={SWITCHBOARD_APP_ID}
         appSecret={SWITCHBOARD_APP_SECRET}
         openAIApiKey={OPENAI_API_KEY}
         instructions={INSTRUCTIONS}
         localTurnHandling={{
-          enabled: true,
-          config: { ...QUIET_CONFIG, pauseToleranceMs: 3000, pauseTimeMs: 2000 },
+          enabled: false,
+          config: { ...QUIET_CONFIG, pauseToleranceMs: 3000, pauseTimeMs: 1000 },
         }}>
         <Screen />
       </OpenAIRealtimeToolkitProvider>
@@ -75,6 +73,7 @@ function Screen(): React.JSX.Element {
   } = useOpenAIRealtimeToolkit();
 
   const [backgroundColor, setBackgroundColor] = useState(colors.bg);
+  const [selectedPreset, setSelectedPreset] = useState<string | null>('quiet');
 
   // Give the model a tool to call to change the app's background color.
   useTool({
@@ -130,48 +129,27 @@ function Screen(): React.JSX.Element {
               ).map(([label, presetConfig]) => (
                 <TouchableOpacity
                   key={label}
-                  style={styles.segment}
-                  onPress={() => localTurnHandling.setConfig(presetConfig)}>
-                  <Text style={styles.segmentText}>{label}</Text>
+                  style={[
+                    styles.segment,
+                    selectedPreset === label && styles.segmentSelected,
+                  ]}
+                  onPress={() => {
+                    localTurnHandling.setConfig(presetConfig);
+                    setSelectedPreset(label);
+                  }}>
+                  <Text
+                    style={[
+                      styles.segmentText,
+                      selectedPreset === label && styles.segmentTextSelected,
+                    ]}>
+                    {label}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
           )}
         </View>
 
-        {/* Tune one knob live. A preset button (above) overwrites everything; this
-            partial setConfig() tweaks just one knob and keeps the rest. Reading
-            config.pauseToleranceMs is reactive, so the label updates on each tap. */}
-        {localTurnHandling.enabled && (
-          <View style={styles.knobRow}>
-            <Text style={styles.knobLabel}>
-              Pause tolerance: {localTurnHandling.config.pauseToleranceMs} ms
-            </Text>
-            <View style={styles.stepperRow}>
-              <TouchableOpacity
-                style={styles.stepBtn}
-                onPress={() =>
-                  localTurnHandling.setConfig({
-                    pauseToleranceMs: Math.max(
-                      0,
-                      localTurnHandling.config.pauseToleranceMs - 250,
-                    ),
-                  })
-                }>
-                <Text style={styles.stepText}>–</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.stepBtn}
-                onPress={() =>
-                  localTurnHandling.setConfig({
-                    pauseToleranceMs: localTurnHandling.config.pauseToleranceMs + 250,
-                  })
-                }>
-                <Text style={styles.stepText}>+</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
       </View>
 
       <View style={styles.section}>
@@ -242,17 +220,6 @@ const styles = StyleSheet.create({
   },
   toggleLabel: { fontSize: 14, color: colors.body },
   presetSlot: { height: 48 },
-  knobRow: { gap: 8 },
-  knobLabel: { fontSize: 12, fontWeight: '600', color: colors.dim },
-  stepperRow: { flexDirection: 'row', gap: 8 },
-  stepBtn: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: 8,
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-  stepText: { fontSize: 18, fontWeight: '700', color: colors.text },
   segmented: {
     flex: 1,
     flexDirection: 'row',
