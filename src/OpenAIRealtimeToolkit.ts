@@ -222,9 +222,7 @@ export function createOpenAIRealtimeToolkit() {
     preset = options.preset ?? 'balanced'
     customKnobs = options.customKnobs ?? {}
     const c = ensureClient()
-    // The native SwitchboardSDK is a process-global singleton that survives JS
-    // bundle reloads (Fast Refresh / dev reopen). Ask it whether it's already
-    // initialized rather than re-initializing blindly (which errors on reload).
+    // Native SDK survives JS reloads — skip re-init if already initialized.
     if (c.getValue('switchboard', 'isInitialized').result !== true) {
       const res = c.callAction('switchboard', 'initialize', {
         appID: options.appId,
@@ -236,13 +234,11 @@ export function createOpenAIRealtimeToolkit() {
           OpenAI: { apiKey: options.openAIApiKey },
         },
       })
-      // Genuine config problems (missing fields, bad license) surface here.
       if (res.error) {
         throw new Error(`Switchboard initialization failed: ${res.error.message}`)
       }
     }
-    // Re-adopt an engine that outlived the reload so start() reuses it instead
-    // of spawning a second one; seed `running` from its live state.
+    // Re-adopt an engine that survived the reload so start() reuses it.
     const engines = c.getValue('switchboard', 'engines').result
     engineId = Array.isArray(engines) && engines.length > 0 ? String(engines[0]) : null
     running = engineId !== null && c.getValue(engineId, 'isRunning').result === true

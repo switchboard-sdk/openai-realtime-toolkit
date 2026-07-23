@@ -155,8 +155,7 @@ describe('initialize', () => {
   })
 
   it('re-adopts the live engine on reload instead of re-initializing or duplicating', async () => {
-    // Simulate a JS reload: the native SDK is already initialized and still owns
-    // a running engine.
+    // Simulate a reload: native already initialized, engine still running.
     scriptNative((req) => {
       if (req.method === 'getValue' && req.params?.key === 'isInitialized') {
         return makeRpcResponse(true)
