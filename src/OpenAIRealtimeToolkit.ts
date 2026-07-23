@@ -232,11 +232,21 @@ export function createOpenAIRealtimeToolkit() {
         OpenAI: { apiKey: options.openAIApiKey },
       },
     })
-    // switchboard.initialize reports config problems on the JSON-RPC error
-    // channel (missing fields, already initialized); surface them instead of
-    // leaving the engine half-initialized and failing later.
     if (res.error) {
-      throw new Error(`Switchboard initialization failed: ${res.error.message}`)
+      const msg = res.error.message ?? ''
+      // The native SDK is a process-global singleton that survives JS bundle
+      // reloads (Fast Refresh / dev reopen); a repeat initialize then reports
+      // "already been initialized". Treat that as success so the app doesn't
+      // red-box on reload.
+      // NOTE (stopgap): matching on error text is brittle — a stable error code
+      // or an SDK init-state query would be more robust.
+      if (/already.*initialized/i.test(msg)) {
+        initialized = true
+        return
+      }
+      // Genuine config problems (missing fields, bad license) come back here —
+      // surface them instead of leaving the engine half-initialized.
+      throw new Error(`Switchboard initialization failed: ${msg}`)
     }
     initialized = true
   }

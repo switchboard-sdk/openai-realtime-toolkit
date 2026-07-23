@@ -153,6 +153,28 @@ describe('initialize', () => {
     )
     expect(initCalls.length).toBe(2)
   })
+
+  it('treats "already been initialized" as success so a reload does not red-box', () => {
+    scriptNative((req) => {
+      if (req.method === 'callAction' && req.params?.actionName === 'initialize') {
+        return makeRpcResponse(undefined, {
+          code: -32000,
+          message: 'SwitchboardSDK has already been initialized.',
+        })
+      }
+      return makeRpcResponse(null)
+    })
+    const ea = createOpenAIRealtimeToolkit()
+    // The native singleton survives JS reloads, so a repeat init reports
+    // "already initialized" — that must not throw.
+    expect(() => ea.initialize(CREDS)).not.toThrow()
+    // Marked initialized, so a second call is a no-op (only one init sent).
+    ea.initialize(CREDS)
+    const initCalls = sentCommands().filter(
+      (c) => c.method === 'callAction' && c.params?.actionName === 'initialize'
+    )
+    expect(initCalls.length).toBe(1)
+  })
 })
 
 describe('start guards', () => {
