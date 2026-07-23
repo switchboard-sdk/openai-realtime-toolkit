@@ -148,6 +148,8 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
       preset: 'custom',
       customKnobs: knobsToPreset(valuesRef.current),
     })
+    // Reflect a native engine that survived the reload still running.
+    setIsRunning(ea.isRunning)
 
     // Consume the internal OpenAI event channel and re-surface only the few
     // things worth exposing. Raw events stay internal to OpenAIRealtimeToolkit.

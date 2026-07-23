@@ -153,6 +153,34 @@ describe('initialize', () => {
     )
     expect(initCalls.length).toBe(2)
   })
+
+  it('re-adopts the live engine on reload instead of re-initializing or duplicating', async () => {
+    // Simulate a reload: native already initialized, engine still running.
+    scriptNative((req) => {
+      if (req.method === 'getValue' && req.params?.key === 'isInitialized') {
+        return makeRpcResponse(true)
+      }
+      if (req.method === 'getValue' && req.params?.key === 'engines') {
+        return makeRpcResponse(['engine-7'])
+      }
+      if (req.method === 'getValue' && req.params?.key === 'isRunning') {
+        return makeRpcResponse(true)
+      }
+      if (req.method === 'callAction' && req.params?.actionName === 'createEngine') {
+        return makeRpcResponse('engine-NEW')
+      }
+      return makeRpcResponse(null)
+    })
+    const ea = createOpenAIRealtimeToolkit()
+    ea.initialize(CREDS)
+    // Already initialized natively → no re-initialize sent.
+    expect(commandFor('initialize')).toBeUndefined()
+    // Adopted the surviving engine and rehydrated its running state.
+    expect(ea.isRunning).toBe(true)
+    // A later start() reuses the adopted engine — never creates a second one.
+    await ea.start()
+    expect(commandFor('createEngine')).toBeUndefined()
+  })
 })
 
 describe('start guards', () => {
