@@ -69,12 +69,16 @@ npx expo prebuild -p ios     # generates ios/ and runs pod install (fetches the 
 npx expo run:ios             # build and launch the dev build
 ```
 
-Declare the microphone string in **`app.json`** rather than editing `Info.plist`
-by hand:
+Add the config plugin to **`app.json`**. It declares the Switchboard Maven repo
+and enables Prefab in your app's own Android build files — the one bit of wiring
+Expo can't do on its own, and which the bare-RN autolinking path can't land early
+enough under prebuild. The microphone string and permissions are handled by
+built-ins (below), so the plugin takes no options:
 
 ```json
 {
   "expo": {
+    "plugins": ["@synervoz/openai-realtime-toolkit"],
     "ios": {
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Used for the voice assistant."
@@ -83,6 +87,10 @@ by hand:
   }
 }
 ```
+
+`NSMicrophoneUsageDescription` is required for the iOS mic prompt. Android
+permissions (`RECORD_AUDIO`, `INTERNET`, `MODIFY_AUDIO_SETTINGS`) ship in the
+library's manifest and merge in automatically — nothing to add.
 
 ## Privacy (App Store)
 

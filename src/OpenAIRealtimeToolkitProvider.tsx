@@ -163,6 +163,7 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
           setConnectionStatus('connected')
           break
         case 'error':
+          console.warn('[OpenAIRealtimeToolkit] session error:', e.raw)
           setConnectionStatus('error')
           break
         case 'inputTranscription':
