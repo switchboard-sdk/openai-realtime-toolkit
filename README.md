@@ -209,9 +209,10 @@ call the `useOpenAIRealtimeToolkit()` hook from any screen.
 
 ### Runtime settings
 
-`instructions` and turn handling both come off the `useOpenAIRealtimeToolkit()` hook and can
-also be seeded as **props** on the provider. Changes through the hook apply live, without
-dropping the OpenAI session.
+`instructions`, the voice settings, and turn handling all come off the
+`useOpenAIRealtimeToolkit()` hook and can also be seeded as **props** on the provider.
+Changes through the hook apply live, without dropping the OpenAI session (the two
+exceptions are called out below).
 
 ```tsx
 const { instructions, setInstructions, localTurnHandling } = useOpenAIRealtimeToolkit();
@@ -219,6 +220,26 @@ const { instructions, setInstructions, localTurnHandling } = useOpenAIRealtimeTo
 localTurnHandling.enabled;            // on-device turn detection vs OpenAI's server_vad
 localTurnHandling.setEnabled(true);
 ```
+
+#### Voice, speed, and model
+
+Seed them on the provider:
+
+```tsx
+<OpenAIRealtimeToolkitProvider voice="marin" speed={1.1} model="gpt-realtime" … />
+```
+
+| Setting | Values | Default | Changing it at runtime |
+| --- | --- | --- | --- |
+| `voice` | `alloy` \| `ash` \| `ballad` \| `cedar` \| `coral` \| `echo` \| `marin` \| `sage` \| `shimmer` \| `verse` | `'cedar'` | `setVoice('marin')` — ⚠️ OpenAI starts a new session for the new voice, so the conversation so far is dropped. |
+| `speed` | `0.5`–`1.5` (out-of-range values are clamped) | `1.0` | `setSpeed(1.25)` — free, applied to the live session. |
+| `model` | any OpenAI Realtime model id, e.g. `'gpt-realtime'` | `'gpt-realtime-2'` | **Not supported.** The model is baked into the engine when it's built, so switching it would mean tearing the engine down — pick it on the provider; the hook exposes it read-only. |
+
+```tsx
+const { voice, setVoice, speed, setSpeed, model } = useOpenAIRealtimeToolkit();
+```
+
+`VOICES` and `SPEED_RANGE` are exported for building a picker or a slider.
 
 `localTurnHandling.config` is the tuning (used only while `enabled`). Read a knob as a value;
 write with `setConfig` — a partial patch tweaks, a full knob set selects a preset:
@@ -319,12 +340,13 @@ The public surface is the provider, the `useOpenAIRealtimeToolkit()` hook, and `
 
 | Import | What it is |
 | --- | --- |
-| `OpenAIRealtimeToolkitProvider` | Provider and entry point. Props: `{ appId, appSecret, openAIApiKey, instructions?, localTurnHandling?: { enabled?, config? } }`. |
+| `OpenAIRealtimeToolkitProvider` | Provider and entry point. Props: `{ appId, appSecret, openAIApiKey, instructions?, voice?, speed?, model?, localTurnHandling?: { enabled?, config? } }`. |
 | `useOpenAIRealtimeToolkit()` | The main hook — everything you drive the assistant with ([below](#the-useopenairealtimetoolkit-hook)). |
 | `useTool(tool)` | Register a tool for the model to call, scoped to the component. See [Tool calling](#tool-calling). |
 | `OpenAIRealtimeToolkitTool` | Tool shape: `{ name, description, parameters?, handler }`. `parameters` (JSON Schema) is optional — omit for a no-arg tool. |
 | `QUIET_CONFIG` / `BALANCED_CONFIG` / `NOISY_CONFIG` / `DEFAULT_CONFIG` | Turn-config presets (full `LocalTurnConfig` sets) for `setConfig(...)`. `DEFAULT_CONFIG` is the base for a from-scratch replace. |
-| Types | `LocalTurnConfig`, `OpenAIRealtimeToolkitProviderProps`, `OpenAIRealtimeToolkitContextValue`, `LocalTurnHandling`, `OpenAIRealtimeToolkitConnectionStatus`. |
+| `VOICES` / `SPEED_RANGE` | Every selectable voice, and the `{ min, max, default }` the node accepts for `speed` — for building a picker / slider. |
+| Types | `LocalTurnConfig`, `OpenAIVoice`, `OpenAIRealtimeToolkitProviderProps`, `OpenAIRealtimeToolkitContextValue`, `LocalTurnHandling`, `OpenAIRealtimeToolkitConnectionStatus`. |
 
 ### The `useOpenAIRealtimeToolkit()` hook
 
@@ -335,12 +357,16 @@ const {
   hasMicrophonePermission, requestMicrophonePermission,
   start, stop, release,                       // engine lifecycle
   instructions, setInstructions,              // system prompt (applies live)
+  voice, setVoice,                            // AI voice (a change restarts the session)
+  speed, setSpeed,                            // speech speed 0.5–1.5 (applies live)
+  model,                                      // Realtime model id (read-only; set via the provider prop)
   localTurnHandling,                          // on-device turn detection + barge-in
   registerTool, unregisterTool,               // dynamic tool sets
 } = useOpenAIRealtimeToolkit();
 ```
 
 - **`stop()`** pauses but keeps the engine warm for a fast restart; **`release()`** frees native resources (the next `start()` rebuilds).
+- **`setVoice` / `setSpeed`** — see [Voice, speed, and model](#voice-speed-and-model); `setVoice` drops the session context, `setSpeed` is free. `model` has no setter — it's fixed at provider mount.
 - **`localTurnHandling`** → `{ enabled, setEnabled, config, setConfig }`. Read a knob as `config.x`; write with `setConfig({ x })` (partial = tweak, full set = select a preset). Applies only while `enabled` — see [Runtime settings](#runtime-settings).
 - **`registerTool(tool)` / `unregisterTool(name)`** — imperative escape hatch for dynamic tool sets (add replaces a same-named tool). Prefer `useTool`.
 

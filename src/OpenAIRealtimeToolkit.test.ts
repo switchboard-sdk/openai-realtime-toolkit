@@ -294,6 +294,84 @@ describe('setInstructions', () => {
   })
 })
 
+describe('voice / speed / model', () => {
+  /** The openAI node's configuration from the (most recent) createEngine call. */
+  function openAIConfig(): any {
+    const creates = sentCommands().filter((c) => c.params?.actionName === 'createEngine')
+    return creates[creates.length - 1].params.params.configuration.graph.nodes.find(
+      (n: any) => n.id === 'openAIRealtimeNode'
+    ).configuration
+  }
+
+  it('bakes the node defaults into the graph when nothing is seeded', async () => {
+    const ea = await initializedEngine()
+    await ea.start()
+    expect(openAIConfig().voice).toBe('cedar')
+    expect(openAIConfig().speed).toBe(1.0)
+    expect(openAIConfig().model).toBe('gpt-realtime-2')
+  })
+
+  it('carries the seeded voice / speed / model into the graph', async () => {
+    const ea = createOpenAIRealtimeToolkit()
+    ea.initialize({ ...CREDS, voice: 'marin', speed: 1.25, model: 'gpt-realtime' })
+    await ea.start()
+    expect(openAIConfig().voice).toBe('marin')
+    expect(openAIConfig().speed).toBe(1.25)
+    expect(openAIConfig().model).toBe('gpt-realtime')
+  })
+
+  it('clamps a seeded speed to the range the node accepts', async () => {
+    const ea = createOpenAIRealtimeToolkit()
+    ea.initialize({ ...CREDS, speed: 9 })
+    await ea.start()
+    expect(openAIConfig().speed).toBe(1.5)
+  })
+
+  it('setVoice applies live via setValue while running', async () => {
+    const ea = await initializedEngine()
+    await ea.start()
+    ea.setVoice('sage')
+    const writes = setValuesFor('openAIRealtimeNode', 'voice')
+    expect(writes[writes.length - 1].params.value).toBe('sage')
+  })
+
+  it('setVoice is stored (not sent) when not running, then baked into the next start', async () => {
+    const ea = await initializedEngine()
+    ea.setVoice('echo')
+    expect(setValuesFor('openAIRealtimeNode', 'voice').length).toBe(0)
+    await ea.start()
+    expect(openAIConfig().voice).toBe('echo')
+  })
+
+  it('never writes model live — it is only ever baked into the graph', async () => {
+    // The node reads `model` from its configuration and doesn't expose it as a
+    // property, so changing it would mean rebuilding the engine. Deliberately
+    // not offered: the model is chosen once, at provider mount.
+    const ea = createOpenAIRealtimeToolkit()
+    ea.initialize({ ...CREDS, model: 'gpt-realtime' })
+    await ea.start()
+    expect(setValuesFor('openAIRealtimeNode', 'model')).toHaveLength(0)
+    expect(openAIConfig().model).toBe('gpt-realtime')
+  })
+
+  it('setSpeed clamps and applies live via setValue while running', async () => {
+    const ea = await initializedEngine()
+    await ea.start()
+    ea.setSpeed(0.1)
+    const writes = setValuesFor('openAIRealtimeNode', 'speed')
+    expect(writes[writes.length - 1].params.value).toBe(0.5)
+  })
+
+  it('setVoice / setSpeed are no-ops when the value is unchanged', async () => {
+    const ea = await initializedEngine()
+    await ea.start()
+    const before = native.processCommand.mock.calls.length
+    ea.setVoice('cedar') // the default
+    ea.setSpeed(1.0) // the default
+    expect(native.processCommand.mock.calls.length).toBe(before)
+  })
+})
+
 describe('setLocalTurnHandling', () => {
   it('is a no-op when the value is unchanged', async () => {
     const ea = await initializedEngine()

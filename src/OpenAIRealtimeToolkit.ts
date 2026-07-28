@@ -5,6 +5,7 @@ import { SwitchboardClient } from './SwitchboardClient'
 import { createLocalTurnController, type LocalTurnController } from './LocalTurnController'
 import { resolveBargeIn, resolveTurnDetection } from './turnDetection'
 import { PRESETS, type Preset, type TurnPreset } from './presets'
+import { clampSpeed, DEFAULT_MODEL, DEFAULT_VOICE, SPEED_RANGE, type OpenAIVoice } from './voice'
 
 /** Credentials for {@link OpenAIRealtimeToolkit.initialize}. */
 export interface OpenAIRealtimeToolkitInitializeOptions {
@@ -19,6 +20,22 @@ export interface OpenAIRealtimeToolkitInitializeOptions {
    * {@link OpenAIRealtimeToolkit.setInstructions}.
    */
   instructions?: string
+  /**
+   * Voice the model speaks with. Defaults to `'cedar'`. Change it later with
+   * {@link OpenAIRealtimeToolkit.setVoice}.
+   */
+  voice?: OpenAIVoice
+  /**
+   * Speech speed multiplier, 0.5–1.5 (out-of-range values are clamped).
+   * Defaults to 1.0. Change it later with {@link OpenAIRealtimeToolkit.setSpeed}.
+   */
+  speed?: number
+  /**
+   * OpenAI Realtime model id, e.g. `'gpt-realtime-2'` (the default). Baked into
+   * the graph when the engine is built, so it's fixed for the engine's lifetime
+   * — there's no live setter.
+   */
+  model?: string
   /**
    * Detect turns on-device with SileroVAD (barge-in) + SmartTurn (turn-end)
    * instead of OpenAI's `server_vad`. Defaults to false. Applied at
@@ -114,7 +131,8 @@ const ANDROID_VOICE_COMMUNICATION_INPUT_PRESET = 7 // oboe InputPreset.VoiceComm
 function buildVoiceAssistantEngine(
   instructions: string,
   tools: object[],
-  localTurnHandling: boolean
+  localTurnHandling: boolean,
+  session: { voice: OpenAIVoice; speed: number; model: string }
 ) {
   return {
     type: 'Switchboard.Realtime',
@@ -130,7 +148,9 @@ function buildVoiceAssistantEngine(
             id: 'openAIRealtimeNode',
             type: 'OpenAI.Realtime',
             configuration: {
-              voice: 'cedar',
+              model: session.model,
+              voice: session.voice,
+              speed: session.speed,
               turnDetection: localTurnHandling ? 'none' : 'server_vad',
               instructions,
               tools,
@@ -184,6 +204,9 @@ export function createOpenAIRealtimeToolkit() {
   let initialized = false
   let nativeSubscribed = false
   let instructions = ''
+  let voice: OpenAIVoice = DEFAULT_VOICE
+  let speed: number = SPEED_RANGE.default
+  let model = DEFAULT_MODEL
   let localTurnHandling = false
   let preset: Preset = 'balanced'
   let customKnobs: TurnPreset = {}
@@ -218,6 +241,9 @@ export function createOpenAIRealtimeToolkit() {
     }
 
     instructions = options.instructions ?? ''
+    voice = options.voice ?? DEFAULT_VOICE
+    speed = clampSpeed(options.speed ?? SPEED_RANGE.default)
+    model = options.model ?? DEFAULT_MODEL
     localTurnHandling = options.localTurnHandling ?? false
     preset = options.preset ?? 'balanced'
     customKnobs = options.customKnobs ?? {}
@@ -299,7 +325,7 @@ export function createOpenAIRealtimeToolkit() {
       const res = c.callAction(
         'switchboard',
         'createEngine',
-        buildVoiceAssistantEngine(instructions, toolDefs(), localTurnHandling)
+        buildVoiceAssistantEngine(instructions, toolDefs(), localTurnHandling, { voice, speed, model })
       )
       id = res.result as string
       if (!id) {
@@ -361,6 +387,36 @@ export function createOpenAIRealtimeToolkit() {
     instructions = next
     if (engineId) {
       client?.setValue('openAIRealtimeNode', 'instructions', next)
+    }
+  }
+
+  /**
+   * Set the voice the model speaks with. Applied live while running — OpenAI
+   * starts a new session for the new voice, dropping the conversation so far;
+   * otherwise the next {@link OpenAIRealtimeToolkit.start} picks it up.
+   */
+  function setVoice(next: OpenAIVoice): void {
+    if (next === voice) {
+      return
+    }
+    voice = next
+    if (engineId) {
+      client?.setValue('openAIRealtimeNode', 'voice', next)
+    }
+  }
+
+  /**
+   * Set the speech speed multiplier (0.5–1.5; out-of-range values are clamped).
+   * Applied live while running — the session keeps its context.
+   */
+  function setSpeed(next: number): void {
+    const clamped = clampSpeed(next)
+    if (clamped === speed) {
+      return
+    }
+    speed = clamped
+    if (engineId) {
+      client?.setValue('openAIRealtimeNode', 'speed', clamped)
     }
   }
 
@@ -554,6 +610,8 @@ export function createOpenAIRealtimeToolkit() {
     requestMicrophonePermission,
     start,
     setInstructions,
+    setVoice,
+    setSpeed,
     setLocalTurnHandling,
     setPreset,
     setCustomKnobs,

@@ -15,6 +15,8 @@ jest.mock('./OpenAIRealtimeToolkit', () => {
     release: jest.fn(),
     requestMicrophonePermission: jest.fn(() => Promise.resolve(true)),
     setInstructions: jest.fn(),
+    setVoice: jest.fn(),
+    setSpeed: jest.fn(),
     setLocalTurnHandling: jest.fn(),
     setPreset: jest.fn(),
     setCustomKnobs: jest.fn(),
@@ -47,6 +49,8 @@ const mockModule = jest.requireMock('./OpenAIRealtimeToolkit') as {
     release: jest.Mock
     requestMicrophonePermission: jest.Mock
     setInstructions: jest.Mock
+    setVoice: jest.Mock
+    setSpeed: jest.Mock
     setLocalTurnHandling: jest.Mock
     setPreset: jest.Mock
     setCustomKnobs: jest.Mock
@@ -125,6 +129,25 @@ describe('mount', () => {
     expect(result.current.localTurnHandling.enabled).toBe(true)
     expect(result.current.isRunning).toBe(false)
     expect(result.current.connectionStatus).toBe('none')
+  })
+
+  it('seeds voice / speed / model from the props, defaulting to the node defaults', () => {
+    const seeded = renderProvider({ voice: 'marin', speed: 1.25, model: 'gpt-realtime' })
+    expect(seeded.result.current.voice).toBe('marin')
+    expect(seeded.result.current.speed).toBe(1.25)
+    expect(seeded.result.current.model).toBe('gpt-realtime')
+    expect(openAIRealtimeToolkit.initialize).toHaveBeenCalledWith(
+      expect.objectContaining({ voice: 'marin', speed: 1.25, model: 'gpt-realtime' })
+    )
+    const defaults = renderProvider()
+    expect(defaults.result.current.voice).toBe('cedar')
+    expect(defaults.result.current.speed).toBe(1.0)
+    expect(defaults.result.current.model).toBe('gpt-realtime-2')
+  })
+
+  it('clamps an out-of-range seeded speed', () => {
+    const { result } = renderProvider({ speed: 4 })
+    expect(result.current.speed).toBe(1.5)
   })
 
   it('seeds knob values from the prop', () => {
@@ -224,6 +247,20 @@ describe('setters are reactive and delegate to the engine', () => {
     act(() => result.current.setInstructions('new prompt'))
     expect(result.current.instructions).toBe('new prompt')
     expect(openAIRealtimeToolkit.setInstructions).toHaveBeenCalledWith('new prompt')
+  })
+
+  it('setVoice updates the value and calls the engine', () => {
+    const { result } = renderProvider()
+    act(() => result.current.setVoice('verse'))
+    expect(result.current.voice).toBe('verse')
+    expect(openAIRealtimeToolkit.setVoice).toHaveBeenCalledWith('verse')
+  })
+
+  it('setSpeed clamps to the node range before exposing it and calling the engine', () => {
+    const { result } = renderProvider()
+    act(() => result.current.setSpeed(0.1))
+    expect(result.current.speed).toBe(0.5)
+    expect(openAIRealtimeToolkit.setSpeed).toHaveBeenCalledWith(0.5)
   })
 
   it('setEnabled updates the value and calls the engine', () => {

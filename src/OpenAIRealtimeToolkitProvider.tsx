@@ -8,6 +8,7 @@ import React, {
   type ReactNode,
 } from 'react'
 import { openAIRealtimeToolkit, type OpenAIRealtimeToolkit, type OpenAIRealtimeToolkitTool } from './OpenAIRealtimeToolkit'
+import { clampSpeed, DEFAULT_MODEL, DEFAULT_VOICE, SPEED_RANGE, type OpenAIVoice } from './voice'
 import { knobsToPreset, resolveKnobValues } from './presets'
 import { type LocalTurnConfig, type KnobValues } from './turnDetection'
 
@@ -63,6 +64,22 @@ export interface OpenAIRealtimeToolkitContextValue {
   instructions: string
   /** Set the OpenAI system prompt. Takes effect live while running. */
   setInstructions: (instructions: string) => void
+  /** The voice the model speaks with. */
+  voice: OpenAIVoice
+  /**
+   * Set the voice. Takes effect live while running, but OpenAI starts a new
+   * session for it — the conversation so far is dropped.
+   */
+  setVoice: (voice: OpenAIVoice) => void
+  /** Speech speed multiplier (0.5–1.5, 1.0 = normal). */
+  speed: number
+  /** Set the speech speed (clamped to 0.5–1.5). Takes effect live while running. */
+  setSpeed: (speed: number) => void
+  /**
+   * The OpenAI Realtime model id. Read-only: the model is baked into the engine
+   * when it's built, so it's set once via the provider's `model` prop.
+   */
+  model: string
   /**
    * On-device turn handling (SileroVAD + SmartTurn) instead of OpenAI's `server_vad`,
    * plus its barge-in / turn-detection tuning. The `config` knobs apply only while
@@ -87,6 +104,15 @@ export interface OpenAIRealtimeToolkitProviderProps {
   openAIApiKey: string
   /** System prompt. Initial value; also settable via `useOpenAIRealtimeToolkit().setInstructions`. */
   instructions?: string
+  /** Voice the model speaks with (defaults to `'cedar'`). Initial value; also settable via the hook. */
+  voice?: OpenAIVoice
+  /** Speech speed multiplier, 0.5–1.5 (defaults to 1.0). Initial value; also settable via the hook. */
+  speed?: number
+  /**
+   * OpenAI Realtime model id (defaults to `'gpt-realtime-2'`). Set here only —
+   * the model is fixed once the engine is built, so the hook exposes it read-only.
+   */
+  model?: string
   /**
    * On-device turn handling seed. `enabled` defaults to false; `config` seeds the initial
    * tuning (e.g. `QUIET_CONFIG` or `{ pauseToleranceMs: 3000 }`; omitted knobs use their
@@ -124,6 +150,10 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
   const [hasMicrophonePermission, setHasMicrophonePermission] = useState<boolean | null>(null)
   // Props seed the initial value only; runtime changes go through the setters.
   const [instructions, setInstructionsState] = useState(props.instructions ?? '')
+  const [voice, setVoiceState] = useState<OpenAIVoice>(props.voice ?? DEFAULT_VOICE)
+  const [speed, setSpeedState] = useState(() => clampSpeed(props.speed ?? SPEED_RANGE.default))
+  // The model is fixed once the engine is built — no setter, so it never changes here.
+  const [model] = useState(props.model ?? DEFAULT_MODEL)
   const [enabled, setEnabledState] = useState(props.localTurnHandling?.enabled ?? false)
   // Current resolved value for every knob — seeded from localTurnHandling.config over the defaults.
   const [values, setValues] = useState<KnobValues>(() =>
@@ -142,6 +172,9 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
       appSecret,
       openAIApiKey,
       instructions,
+      voice,
+      speed,
+      model,
       localTurnHandling: enabled,
       // The engine keeps its named-preset machinery internally; the provider always
       // drives the 'custom' slot with the resolved knob values.
@@ -227,6 +260,17 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
     openAIRealtimeToolkitRef.current?.setInstructions(next)
   }, [])
 
+  const setVoice = useCallback((next: OpenAIVoice) => {
+    setVoiceState(next)
+    openAIRealtimeToolkitRef.current?.setVoice(next)
+  }, [])
+
+  const setSpeed = useCallback((next: number) => {
+    const clamped = clampSpeed(next)
+    setSpeedState(clamped)
+    openAIRealtimeToolkitRef.current?.setSpeed(clamped)
+  }, [])
+
   const setEnabled = useCallback((next: boolean) => {
     setEnabledState(next)
     openAIRealtimeToolkitRef.current?.setLocalTurnHandling(next)
@@ -274,6 +318,11 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
     requestMicrophonePermission,
     instructions,
     setInstructions,
+    voice,
+    setVoice,
+    speed,
+    setSpeed,
+    model,
     localTurnHandling: { enabled, setEnabled, config, setConfig },
     registerTool,
     unregisterTool,

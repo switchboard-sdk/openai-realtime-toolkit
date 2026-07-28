@@ -18,6 +18,9 @@ export type {
 } from './OpenAIRealtimeToolkitProvider'
 // Shape passed to the `useTool` hook (or `registerTool` from useOpenAIRealtimeToolkit()).
 export type { OpenAIRealtimeToolkitTool } from './OpenAIRealtimeToolkit'
+// Every selectable voice + the accepted `speed` range — for building a voice picker / speed slider.
+export { VOICES, SPEED_RANGE } from './voice'
+export type { OpenAIVoice } from './voice'
 // Presets as full knob sets — pass to `setConfig(...)` or the `localTurnHandling={{ config }}` prop.
 export { QUIET_CONFIG, BALANCED_CONFIG, NOISY_CONFIG } from './presets'
 // Knob values (read via `useOpenAIRealtimeToolkit().localTurnHandling.config`) + static metadata for a tuning UI.
