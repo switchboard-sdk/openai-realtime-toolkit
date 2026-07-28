@@ -113,8 +113,12 @@ Then build:
 npx react-native run-android
 ```
 
-> **Expo apps** don't do any of this by hand — the [config plugin](#expo) declares all
-> three for you during `prebuild`.
+> **Expo apps**: the [config plugin](#expo) applies all three during `prebuild`. Every
+> Android build prints the NDK it used, so you can confirm it landed:
+>
+> ```
+> [ExpoRootProject]  - ndk:  29.0.14206865
+> ```
 
 ### Expo
 
