@@ -57,10 +57,26 @@ function withNdkVersion(config) {
     const match = cfg.modResults.contents.match(declaration);
 
     if (!match) {
-      // Nothing to patch (non-standard template). Appending still lands in time:
-      // the root build.gradle is fully evaluated before :app is configured, so
-      // `android { ndkVersion rootProject.ext.ndkVersion }` sees it.
-      cfg.modResults.contents += `\next { ndkVersion = "${MIN_NDK_VERSION}" }\n`;
+      // Nothing to patch — the Expo SDK 57 template declares no ndkVersion. The block
+      // has to be INSERTED BEFORE `apply plugin: "expo-root-project"`, not appended:
+      // expo-root-project defaults ndkVersion to 27.1.12297006 via setIfNotExist, so we
+      // only win by getting there first, and :app is configured *before* the root
+      // build.gradle body finishes, so a trailing statement is read too late however it
+      // is written (`ext { … }`, `ext.ndkVersion = …` and `rootProject.ext.set(…)` all
+      // lose). It can't be prepended to the file either — Gradle wants buildscript {}
+      // first — so anchor on the first plugin application.
+      const block = `ext { ndkVersion = "${MIN_NDK_VERSION}" }\n\n`;
+      const anchor = cfg.modResults.contents.indexOf('apply plugin:');
+      if (anchor === -1) {
+        // No anchor (non-standard template): append and let the [ExpoRootProject]
+        // banner printed by every Android build reveal whether it took effect.
+        cfg.modResults.contents += `\n${block}`;
+        return cfg;
+      }
+      cfg.modResults.contents =
+        cfg.modResults.contents.slice(0, anchor) +
+        block +
+        cfg.modResults.contents.slice(anchor);
       return cfg;
     }
 
