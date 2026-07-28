@@ -45,12 +45,40 @@ app crashes when the mic is requested):
 
 ### Android
 
+OpenAIRealtimeToolkit's C++ TurboModule is compiled in your app's native build, so your
+app needs to (a) know the Switchboard Maven repo and (b) enable Prefab.
+
+Add the repo to your app's root **`android/build.gradle`** (public, no
+credentials). Declare it at the project level — React Native's Gradle plugin adds
+its own repos the same way, so a settings-level `dependencyResolutionManagement`
+block would be ignored under Gradle's default `PREFER_PROJECT` mode:
+
+```groovy
+allprojects {
+    repositories {
+        maven { url "https://s3.amazonaws.com/synervoz-android-maven-repository" }
+    }
+}
+```
+
+Enable Prefab in your app's **`android/app/build.gradle`**:
+
+```groovy
+android {
+    buildFeatures {
+        prefab true
+    }
+}
+```
+
+Then build:
+
 ```sh
 npx react-native run-android
 ```
 
-No setup needed — OpenAIRealtimeToolkit pulls the Switchboard SDK + extensions from Maven and
-wires up the repo and Prefab in your app automatically.
+> **Expo apps** don't do this by hand — the [config plugin](#expo) declares both
+> for you during `prebuild`.
 
 ### Expo
 

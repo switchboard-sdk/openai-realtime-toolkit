@@ -23,3 +23,11 @@ buildscript {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+// Switchboard SDK + extensions (public, no credentials). Declared at the project
+// level to match how React Native's Gradle plugin adds its own repositories.
+allprojects {
+    repositories {
+        maven { url "https://s3.amazonaws.com/synervoz-android-maven-repository" }
+    }
+}

@@ -77,6 +77,10 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
+    buildFeatures {
+        prefab true
+    }
+
     namespace "com.openairealtimetoolkitexample"
     defaultConfig {
         applicationId "com.openairealtimetoolkitexample"
