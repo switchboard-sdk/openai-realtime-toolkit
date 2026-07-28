@@ -18,12 +18,13 @@ npm install @synervoz/openai-realtime-toolkit
 
 ### Requirements
 
-| Requirement      | Minimum            |
-| ---------------- | ------------------ |
-| React Native     | 0.76+              |
-| New Architecture | Required (enabled) |
-| iOS              | 13.4+              |
-| Node.js          | 22+                |
+| Requirement      | Minimum                     |
+| ---------------- | --------------------------- |
+| React Native     | 0.76+                       |
+| New Architecture | Required (enabled)          |
+| iOS              | 13.4+                       |
+| Android NDK      | 29 — see [Android](#android) |
+| Node.js          | 22+                         |
 
 OpenAIRealtimeToolkit is a bare React Native **C++ TurboModule** and requires the **[New Architecture](https://reactnative.dev/architecture/landing-page)**. It works in both Expo (prebuild) and bare React Native apps.
 
@@ -46,9 +47,10 @@ app crashes when the mic is requested):
 ### Android
 
 OpenAIRealtimeToolkit's C++ TurboModule is compiled in your app's native build, so your
-app needs to (a) know the Switchboard Maven repo and (b) enable Prefab.
+app needs to (a) know the Switchboard Maven repo, (b) enable Prefab, and (c) build with
+**NDK 29**. All three are required.
 
-Add the repo to your app's root **`android/build.gradle`** (public, no
+**1. Maven repo.** Add it to your app's root **`android/build.gradle`** (public, no
 credentials). Declare it at the project level — React Native's Gradle plugin adds
 its own repos the same way, so a settings-level `dependencyResolutionManagement`
 block would be ignored under Gradle's default `PREFER_PROJECT` mode:
@@ -61,7 +63,7 @@ allprojects {
 }
 ```
 
-Enable Prefab in your app's **`android/app/build.gradle`**:
+**2. Prefab.** Enable it in your app's **`android/app/build.gradle`**:
 
 ```groovy
 android {
@@ -71,14 +73,48 @@ android {
 }
 ```
 
+**3. NDK 29.** Raise `ndkVersion` in the `buildscript { ext { … } }` block of your app's
+root **`android/build.gradle`** — the React Native template pins 27.x, which does not
+work:
+
+```groovy
+buildscript {
+    ext {
+        ndkVersion = "29.0.14206865"   // not the template's 27.x — see below
+        // …
+    }
+}
+```
+
+Install it once if you don't have it:
+
+```sh
+"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"
+```
+
+The Switchboard native libraries reference `__cxa_init_primary_exception`, a symbol only
+exported by NDK 29's `libc++_shared.so`. Your app packages exactly one
+`libc++_shared.so` — the one from *its* NDK — so on the template's 27.x the Switchboard
+libraries can't be loaded. This builds and installs fine; it fails at launch:
+
+```
+SoLoader: java.lang.UnsatisfiedLinkError: dlopen failed: cannot locate symbol
+  "__cxa_init_primary_exception" referenced by ".../lib/arm64-v8a/libSwitchboardSDK.so"
+SoLoader: couldn't find DSO to load: libSwitchboardSDK.so
+ReactNativeJS: Invariant Violation: TurboModuleRegistry.getEnforcing(...):
+  'PlatformConstants' could not be found.
+```
+
+(27.x is confirmed broken and 29 confirmed good; 28.x is untested — pin 29.)
+
 Then build:
 
 ```sh
 npx react-native run-android
 ```
 
-> **Expo apps** don't do this by hand — the [config plugin](#expo) declares both
-> for you during `prebuild`.
+> **Expo apps** don't do any of this by hand — the [config plugin](#expo) declares all
+> three for you during `prebuild`.
 
 ### Expo
 
@@ -97,11 +133,11 @@ npx expo prebuild -p ios     # generates ios/ and runs pod install (fetches the 
 npx expo run:ios             # build and launch the dev build
 ```
 
-Add the config plugin to **`app.json`**. It declares the Switchboard Maven repo
-and enables Prefab in your app's own Android build files — the one bit of wiring
-Expo can't do on its own, and which the bare-RN autolinking path can't land early
-enough under prebuild. The microphone string and permissions are handled by
-built-ins (below), so the plugin takes no options:
+Add the config plugin to **`app.json`**. It declares the Switchboard Maven repo, enables
+Prefab, and raises `ndkVersion` to 29 in your app's own Android build files — the wiring
+Expo can't do on its own (`expo-build-properties` has no `ndkVersion` option), and which
+the bare-RN autolinking path can't land early enough under prebuild. The microphone
+string and permissions are handled by built-ins (below), so the plugin takes no options:
 
 ```json
 {
