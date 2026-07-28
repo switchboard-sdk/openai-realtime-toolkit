@@ -127,17 +127,18 @@ need a [development build](https://docs.expo.dev/develop/development-builds/intr
   tested against RN 0.86, i.e. **Expo SDK 57**: an exact RN match, so there's no
   TurboModule codegen mismatch. Older SDKs down to 52 should also work.
 
+**1. Install.**
+
 ```sh
 npx expo install @synervoz/openai-realtime-toolkit
-npx expo prebuild -p ios     # generates ios/ and runs pod install (fetches the frameworks)
-npx expo run:ios             # build and launch the dev build
 ```
 
-Add the config plugin to **`app.json`**. It declares the Switchboard Maven repo, enables
-Prefab, and raises `ndkVersion` to 29 in your app's own Android build files — the wiring
-Expo can't do on its own (`expo-build-properties` has no `ndkVersion` option), and which
-the bare-RN autolinking path can't land early enough under prebuild. The microphone
-string and permissions are handled by built-ins (below), so the plugin takes no options:
+**2. Add the config plugin to `app.json`** — do this *before* prebuilding, because
+prebuild is what applies it. It declares the Switchboard Maven repo, enables Prefab, and
+raises `ndkVersion` to 29 in your app's own Android build files — the wiring Expo can't
+do on its own (`expo-build-properties` has no `ndkVersion` option), and which the bare-RN
+autolinking path can't land early enough under prebuild. The microphone string and
+permissions are handled by built-ins (below), so the plugin takes no options:
 
 ```json
 {
@@ -155,6 +156,18 @@ string and permissions are handled by built-ins (below), so the plugin takes no 
 `NSMicrophoneUsageDescription` is required for the iOS mic prompt. Android
 permissions (`RECORD_AUDIO`, `INTERNET`, `MODIFY_AUDIO_SETTINGS`) ship in the
 library's manifest and merge in automatically — nothing to add.
+
+**3. Prebuild, then build and launch the dev build.**
+
+```sh
+npx expo prebuild            # generates ios/ + android/; iOS runs pod install (fetches the frameworks)
+npx expo run:ios             # or: npx expo run:android
+```
+
+Add `-p ios` / `-p android` to prebuild for a single platform. If you prebuilt *before*
+adding the plugin, run `npx expo prebuild` again so the Android wiring lands — otherwise
+the generated `android/` has no Maven repo, no Prefab and NDK 27, and the app crashes at
+launch (see [Android](#android)).
 
 ## Privacy (App Store)
 
