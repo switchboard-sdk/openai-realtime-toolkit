@@ -1,12 +1,21 @@
 const {
   withProjectBuildGradle,
   withAppBuildGradle,
+  withGradleProperties,
   createRunOncePlugin,
 } = require('@expo/config-plugins');
 
 const pkg = require('../package.json');
 
 const MAVEN_URL = 'https://s3.amazonaws.com/synervoz-android-maven-repository';
+
+// The Switchboard AARs ship arm64-v8a, armeabi-v7a and x86_64 — there is no
+// 32-bit x86 slice. The RN/Expo template asks for one anyway, so a default
+// `./gradlew assembleDebug` (or a release/CI/EAS build) fails at configure time:
+//   [CXX1210] debug|x86 : No compatible library found [//SwitchboardSmartTurn/…]
+// `expo run:android` hides this by narrowing the build to the target device's
+// ABI, so it only shows up once someone builds without that narrowing.
+const SUPPORTED_ABIS = ['armeabi-v7a', 'arm64-v8a', 'x86_64'];
 
 // The Switchboard native libraries reference __cxa_init_primary_exception, which
 // only NDK 29's libc++_shared.so exports. An app packages exactly one
@@ -90,6 +99,41 @@ function withNdkVersion(config) {
   });
 }
 
+// Drop any ABI we have no native slice for from the app's
+// `reactNativeArchitectures` (see SUPPORTED_ABIS above for why). Only ever
+// removes entries, so an app that has already narrowed the list — or added an
+// ABI we don't know about — keeps its own choice.
+function withSupportedAbis(config) {
+  return withGradleProperties(config, (cfg) => {
+    const key = 'reactNativeArchitectures';
+    const property = cfg.modResults.find(
+      (item) => item.type === 'property' && item.key === key
+    );
+
+    if (!property) {
+      // No declaration: AGP would build every ABI the NDK supports, x86
+      // included, so state the supported set explicitly.
+      cfg.modResults.push({
+        type: 'property',
+        key,
+        value: SUPPORTED_ABIS.join(','),
+      });
+      return cfg;
+    }
+
+    const kept = property.value
+      .split(',')
+      .map((abi) => abi.trim())
+      .filter((abi) => abi && SUPPORTED_ABIS.includes(abi));
+
+    // An app that asked only for unsupported ABIs is left untouched — silently
+    // swapping in a different architecture would be worse than the build error.
+    if (kept.length) property.value = kept.join(',');
+
+    return cfg;
+  });
+}
+
 // Only the Android Gradle wiring that Expo can't do on its own. Permissions ship
 // in the library's AndroidManifest (auto-merged); set the iOS microphone string
 // with the built-in `ios.infoPlist.NSMicrophoneUsageDescription`.
@@ -97,6 +141,7 @@ const withOpenAIRealtimeToolkit = (config) => {
   config = withSwitchboardMavenRepo(config);
   config = withPrefab(config);
   config = withNdkVersion(config);
+  config = withSupportedAbis(config);
   return config;
 };
 

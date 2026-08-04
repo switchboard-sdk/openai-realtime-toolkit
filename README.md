@@ -107,13 +107,35 @@ ReactNativeJS: Invariant Violation: TurboModuleRegistry.getEnforcing(...):
 
 (27.x is confirmed broken and 29 confirmed good; 28.x is untested — pin 29.)
 
+**4. Drop 32-bit x86.** The Switchboard libraries ship `arm64-v8a`, `armeabi-v7a` and
+`x86_64` — there is no 32-bit `x86` slice, but the React Native template's
+`reactNativeArchitectures` asks for one. Remove it in your app's
+**`android/gradle.properties`**:
+
+```properties
+reactNativeArchitectures=armeabi-v7a,arm64-v8a,x86_64
+```
+
+Otherwise any build that doesn't narrow the ABI list — `./gradlew assembleDebug`,
+a release build, CI, EAS — fails at configure time:
+
+```
+Execution failed for task ':app:configureCMakeDebug[x86]'.
+> [CXX1210] … debug|x86 : No compatible library found [//SwitchboardSmartTurn/SwitchboardSmartTurn]
+```
+
+`npx react-native run-android` and `npx expo run:android` build only the connected
+device's ABI, so they succeed either way — this surfaces the first time someone builds
+without that narrowing. Nothing is lost: `armeabi-v7a` covers 32-bit ARM, `x86_64` covers
+emulators and Intel Chromebooks, and Google Play requires 64-bit anyway.
+
 Then build:
 
 ```sh
 npx react-native run-android
 ```
 
-> **Expo apps**: the [config plugin](#expo) applies all three during `prebuild`. Every
+> **Expo apps**: the [config plugin](#expo) applies all four during `prebuild`. Every
 > Android build prints the NDK it used, so you can confirm it landed:
 >
 > ```
@@ -138,8 +160,9 @@ npx expo install @synervoz/openai-realtime-toolkit
 ```
 
 **2. Add the config plugin to `app.json`** — do this *before* prebuilding, because
-prebuild is what applies it. It declares the Switchboard Maven repo, enables Prefab, and
-raises `ndkVersion` to 29 in your app's own Android build files — the wiring Expo can't
+prebuild is what applies it. It declares the Switchboard Maven repo, enables Prefab,
+raises `ndkVersion` to 29, and drops the unsupported 32-bit `x86` architecture from
+`reactNativeArchitectures` in your app's own Android build files — the wiring Expo can't
 do on its own (`expo-build-properties` has no `ndkVersion` option), and which the bare-RN
 autolinking path can't land early enough under prebuild. The microphone string and
 permissions are handled by built-ins (below), so the plugin takes no options:
