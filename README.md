@@ -209,6 +209,26 @@ At the **app** level you still handle:
 - **App Store privacy labels** — audio is streamed to the **OpenAI Realtime API** with
   your key, so disclose that (e.g. "Audio Data"). OpenAIRealtimeToolkit itself stores nothing.
 
+## Credentials
+
+The provider takes three: a **Switchboard** `appId` / `appSecret` pair, and your **OpenAI**
+API key.
+
+- **Switchboard** — sign up at [console.switchboard.audio](https://console.switchboard.audio/register)
+  (free) and create an app to get its `APP_ID` and `APP_SECRET`.
+- **OpenAI** — a Realtime-capable key from
+  [platform.openai.com](https://platform.openai.com/api-keys).
+
+> [!TIP]
+> The [example app](example) ships with working Switchboard demo credentials, so you can try
+> the library out without creating an account — you only need to add your own OpenAI key.
+
+> [!NOTE]
+> Your Switchboard `APP_ID` and `APP_SECRET` are **safe to bundle in your application**. They
+> function like a publishing key and are intended to be distributed with your app. Your
+> **OpenAI key is not** — keep it out of source (e.g. `react-native-dotenv`), and for a
+> shipped app mint an ephemeral key server-side rather than embedding a standing one.
+
 ## Usage
 
 Wrap your app in `OpenAIRealtimeToolkitProvider` with your credentials, then drive it from
@@ -263,9 +283,6 @@ function Screen() {
 That's the whole app — `start()` handles mic permission and connects, and the model can
 call the `get_time` tool (try asking it the time). Turn-detection tuning and styling are
 opt-in; see below and [`example/App.tsx`](example/App.tsx) for the fuller version.
-
-> [!NOTE]
-> Your Switchboard `APP_ID` and `APP_SECRET` are **safe to bundle in your application**. They function like a publishing key and are intended to be distributed with your app.
 
 ### Lifecycle & placement
 
