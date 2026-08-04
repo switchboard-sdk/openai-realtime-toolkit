@@ -169,6 +169,46 @@ describe('OpenAI event → React state mapping', () => {
     expect(result.current.connectionStatus).toBe('error')
   })
 
+  it('surfaces a session error message through `error`', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const { result } = renderProvider()
+    act(() =>
+      __emitOpenAI({
+        name: 'error',
+        data: { code: 'invalid_api_key', message: 'Incorrect API key provided: sk-…' },
+        raw: '{"…":"…"}',
+      })
+    )
+    expect(result.current.error).toBe('Incorrect API key provided: sk-…')
+    expect(result.current.connectionStatus).toBe('error')
+    warnSpy.mockRestore()
+  })
+
+  it('falls back to the raw payload when the session error carries no message', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const { result } = renderProvider()
+    act(() => __emitOpenAI({ name: 'error', data: {}, raw: '{"code":"oops"}' }))
+    expect(result.current.error).toBe('Session error: {"code":"oops"}')
+    warnSpy.mockRestore()
+  })
+
+  it("keeps 'error' sticky across the node's reconnect attempts", () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const { result } = renderProvider()
+    act(() => __emitOpenAI({ name: 'error', data: { message: 'bad key' } }))
+    // The OpenAI node retries every few seconds; neither leg may hide the failure.
+    act(() => __emitOpenAI({ name: 'sessionDisconnected' }))
+    expect(result.current.connectionStatus).toBe('error')
+    act(() => __emitOpenAI({ name: 'sessionStarting' }))
+    expect(result.current.connectionStatus).toBe('error')
+    expect(result.current.error).toBe('bad key')
+    // A session that actually comes up is the only thing that clears it.
+    act(() => __emitOpenAI({ name: 'sessionCreated' }))
+    expect(result.current.connectionStatus).toBe('connected')
+    expect(result.current.error).toBeNull()
+    warnSpy.mockRestore()
+  })
+
   it('maps input/response transcription events to the transcripts', () => {
     const { result } = renderProvider()
     act(() => __emitOpenAI({ name: 'inputTranscription', data: { transcript: 'hello' } }))

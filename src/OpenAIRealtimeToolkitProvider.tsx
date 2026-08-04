@@ -42,9 +42,17 @@ export interface LocalTurnHandling {
 export interface OpenAIRealtimeToolkitContextValue {
   /** Whether the engine is currently running. */
   isRunning: boolean
-  /** Last error from start(), or null. */
+  /**
+   * Last failure message, or null: mic permission and `start()` errors, plus OpenAI
+   * session errors (rejected key, quota, unknown model). Cleared by `start()` and by
+   * a session that comes up.
+   */
   error: string | null
-  /** OpenAI Realtime session connection state. */
+  /**
+   * OpenAI Realtime session connection state. `'error'` is sticky — the node's
+   * reconnect attempts don't reset it to `'connecting'`; only a session that comes
+   * up clears it. See {@link OpenAIRealtimeToolkitContextValue.error} for the reason.
+   */
   connectionStatus: OpenAIRealtimeToolkitConnectionStatus
   /** Latest transcript of the user's speech. */
   inputTranscription: string
@@ -190,15 +198,26 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
       switch (e.name) {
         case 'sessionStarting':
         case 'sessionDisconnected':
-          setConnectionStatus('connecting')
+          // Keep a known failure visible: the OpenAI node reconnects every few
+          // seconds, so without this a rejected key would show 'error' for an
+          // instant and then sit on 'connecting' forever, indistinguishable from
+          // a slow connect. Only a session that actually comes up clears it.
+          setConnectionStatus((prev) => (prev === 'error' ? 'error' : 'connecting'))
           break
         case 'sessionCreated':
           setConnectionStatus('connected')
+          setError(null)
           break
-        case 'error':
+        case 'error': {
           console.warn('[OpenAIRealtimeToolkit] session error:', e.raw)
+          // Session failures (bad key, quota, unknown model) reach the app through
+          // the same `error` string as engine failures — one channel, with the
+          // reason in it, instead of only a console warning.
+          const message = (e.data as { message?: string } | undefined)?.message
+          setError(message?.trim() ? message : `Session error: ${e.raw}`)
           setConnectionStatus('error')
           break
+        }
         case 'inputTranscription':
           setInputTranscription((e.data as { transcript?: string })?.transcript ?? '')
           break

@@ -259,7 +259,7 @@ export default function App() {
 }
 
 function Screen() {
-  const { isRunning, connectionStatus, start, stop } = useOpenAIRealtimeToolkit();
+  const { isRunning, connectionStatus, error, start, stop } = useOpenAIRealtimeToolkit();
 
   // A tool the model can call; its return value is sent back automatically.
   useTool({
@@ -275,13 +275,15 @@ function Screen() {
         <Text>{isRunning ? 'Stop' : 'Start talking'}</Text>
       </TouchableOpacity>
       <Text>Connection: {connectionStatus}</Text>
+      {!!error && <Text>Error: {error}</Text>}
     </SafeAreaView>
   );
 }
 ```
 
 That's the whole app — `start()` handles mic permission and connects, and the model can
-call the `get_time` tool (try asking it the time). Turn-detection tuning and styling are
+call the `get_time` tool (try asking it the time). Render `error`, as above: a rejected
+API key or a denied mic shows up there ([details](#the-useopenairealtimetoolkit-hook)). Turn-detection tuning and styling are
 opt-in; see below and [`example/App.tsx`](example/App.tsx) for the fuller version.
 
 ### Lifecycle & placement
@@ -458,6 +460,12 @@ const {
 } = useOpenAIRealtimeToolkit();
 ```
 
+- **`error` / `connectionStatus`** — one error channel: mic-permission and `start()` failures
+  *and* OpenAI session failures (rejected key, quota, unknown model) land in `error` as a
+  message. `connectionStatus` goes `'error'` with it and **stays** there — the node keeps
+  retrying underneath, but a reconnect attempt won't reset it to `'connecting'`. Both clear
+  when a session comes up (or on the next `start()`). Render `error` and you'll see e.g.
+  `Incorrect API key provided: sk-…` instead of guessing at a connection that never lands.
 - **`stop()`** pauses but keeps the engine warm for a fast restart; **`release()`** frees native resources (the next `start()` rebuilds).
 - **`setVoice` / `setSpeed`** — see [Voice, speed, and model](#voice-speed-and-model); `setVoice` drops the session context, `setSpeed` is free. `model` has no setter — it's fixed at provider mount.
 - **`localTurnHandling`** → `{ enabled, setEnabled, config, setConfig }`. Read a knob as `config.x`; write with `setConfig({ x })` (partial = tweak, full set = select a preset). Applies only while `enabled` — see [Runtime settings](#runtime-settings).
