@@ -239,7 +239,7 @@ cancellation (VPIO):
 
 ```tsx
 import React from 'react';
-import { SafeAreaView, Text, TouchableOpacity } from 'react-native';
+import { Text, TouchableOpacity, View } from 'react-native';
 import {
   OpenAIRealtimeToolkitProvider,
   useOpenAIRealtimeToolkit,
@@ -270,21 +270,22 @@ function Screen() {
   });
 
   return (
-    <SafeAreaView style={{ flex: 1, padding: 24, gap: 16 }}>
+    <View style={{ flex: 1, padding: 24, gap: 16 }}>
       <TouchableOpacity onPress={isRunning ? stop : start}>
         <Text>{isRunning ? 'Stop' : 'Start talking'}</Text>
       </TouchableOpacity>
       <Text>Connection: {connectionStatus}</Text>
       {!!error && <Text>Error: {error}</Text>}
-    </SafeAreaView>
+    </View>
   );
 }
 ```
 
 That's the whole app — `start()` handles mic permission and connects, and the model can
 call the `get_time` tool (try asking it the time). Render `error`, as above: a rejected
-API key or a denied mic shows up there ([details](#the-useopenairealtimetoolkit-hook)). Turn-detection tuning and styling are
-opt-in; see below and [`example/App.tsx`](example/App.tsx) for the fuller version.
+API key or a denied mic shows up there ([details](#the-useopenairealtimetoolkit-hook)).
+Layout is yours — the snippet's `View` keeps it minimal. Turn-detection tuning and styling
+are opt-in; see below and [`example/App.tsx`](example/App.tsx) for the fuller version.
 
 ### Lifecycle & placement
 
