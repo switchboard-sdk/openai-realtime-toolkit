@@ -10,6 +10,8 @@ jest.mock('./OpenAIRealtimeToolkit', () => {
   const openAIRealtimeToolkit = {
     initialize: jest.fn(),
     isRunning: false,
+    // Set by the real initialize() when the SDK refuses the credentials.
+    initError: null as string | null,
     start: jest.fn(() => Promise.resolve()),
     stop: jest.fn(),
     release: jest.fn(),
@@ -44,6 +46,7 @@ const mockModule = jest.requireMock('./OpenAIRealtimeToolkit') as {
   openAIRealtimeToolkit: {
     initialize: jest.Mock
     isRunning: boolean
+    initError: string | null
     start: jest.Mock
     stop: jest.Mock
     release: jest.Mock
@@ -79,7 +82,12 @@ function renderProvider(props: Record<string, unknown> = {}) {
 beforeEach(() => {
   jest.clearAllMocks()
   openAIRealtimeToolkit.start.mockResolvedValue(undefined)
+  // clearAllMocks clears calls, not implementations — a test that makes stop()
+  // throw would otherwise leak into the rest of the suite.
+  openAIRealtimeToolkit.stop.mockImplementation(() => {})
   openAIRealtimeToolkit.requestMicrophonePermission.mockResolvedValue(true)
+  // Plain property — clearAllMocks doesn't reset it.
+  openAIRealtimeToolkit.initError = null
 })
 
 describe('credential validation', () => {
@@ -155,6 +163,44 @@ describe('mount', () => {
     // The seeded knob applies; the rest fall back to their defaults.
     expect(result.current.localTurnHandling.config.duckGain).toBe(0.1)
     expect(result.current.localTurnHandling.config.pauseToleranceMs).toBe(0)
+  })
+})
+
+describe('engine-level failures', () => {
+  it("surfaces the engine's initError as `error` on mount instead of red-boxing", () => {
+    openAIRealtimeToolkit.initError = 'Switchboard initialization failed: Invalid app secret'
+    const { result } = renderProvider()
+    expect(result.current.error).toBe('Switchboard initialization failed: Invalid app secret')
+  })
+
+  it('leaves `error` null when the engine initialized cleanly', () => {
+    const { result } = renderProvider()
+    expect(result.current.error).toBeNull()
+  })
+
+  it('keeps isRunning true and reports why when stop() is refused', async () => {
+    openAIRealtimeToolkit.stop.mockImplementation(() => {
+      throw new Error('Engine stop failed: Engine busy')
+    })
+    const { result } = renderProvider()
+    await act(async () => {
+      await result.current.start()
+    })
+    expect(result.current.isRunning).toBe(true)
+    act(() => result.current.stop())
+    // Still running — the UI must not offer "Start" over a live mic.
+    expect(result.current.isRunning).toBe(true)
+    expect(result.current.error).toBe('Engine stop failed: Engine busy')
+  })
+
+  it('reports a start() failure by message, without the "Error:" prefix', async () => {
+    openAIRealtimeToolkit.start.mockRejectedValue(new Error('Engine start failed: Audio session unavailable'))
+    const { result } = renderProvider()
+    await act(async () => {
+      await result.current.start()
+    })
+    expect(result.current.error).toBe('Engine start failed: Audio session unavailable')
+    expect(result.current.isRunning).toBe(false)
   })
 })
 

@@ -202,6 +202,9 @@ export function createOpenAIRealtimeToolkit() {
   // engineId = engine exists (kept across stop for reuse); running = started.
   let running = false
   let initialized = false
+  // Why the SDK refused to initialize (rejected credentials, extension load
+  // failure), or null. Recorded instead of thrown — see initialize().
+  let initError: string | null = null
   let nativeSubscribed = false
   let instructions = ''
   let voice: OpenAIVoice = DEFAULT_VOICE
@@ -222,11 +225,18 @@ export function createOpenAIRealtimeToolkit() {
   /**
    * Load the Switchboard SDK and its extensions (SileroVAD + Onnx + OpenAI)
    * with your credentials. Idempotent.
+   *
+   * Throws only for a caller mistake (a blank credential). An SDK-level refusal
+   * is recorded in {@link OpenAIRealtimeToolkit.initError} and leaves this
+   * uninitialized, so a later `start()` rejects with the reason: the provider
+   * calls this from an effect, where a throw would red-box the app instead of
+   * reaching its `error` state.
    */
   function initialize(options: OpenAIRealtimeToolkitInitializeOptions): void {
     if (initialized) {
       return
     }
+    initError = null
     // Fail loudly on missing/blank credentials. The SDK rejects a missing
     // appID/appSecret asynchronously (via license validation) and only *logs* a
     // bad OpenAI key, so without these guards a config typo fails silently.
@@ -261,7 +271,8 @@ export function createOpenAIRealtimeToolkit() {
         },
       })
       if (res.error) {
-        throw new Error(`Switchboard initialization failed: ${res.error.message}`)
+        initError = `Switchboard initialization failed: ${res.error.message}`
+        return
       }
     }
     // Re-adopt an engine that survived the reload so start() reuses it.
@@ -306,7 +317,9 @@ export function createOpenAIRealtimeToolkit() {
    */
   async function start(): Promise<void> {
     if (!initialized || !client) {
-      throw new Error('OpenAIRealtimeToolkit.initialize() must be called before start()')
+      // An SDK refusal recorded by initialize() is the real reason — report that
+      // rather than "call initialize() first", which would be misleading.
+      throw new Error(initError ?? 'OpenAIRealtimeToolkit.initialize() must be called before start()')
     }
     if (running) {
       return // already running
@@ -344,7 +357,12 @@ export function createOpenAIRealtimeToolkit() {
       }
     }
 
-    c.callAction(id, 'start')
+    // Check the result: a refused start (audio session unavailable, mic held by
+    // another app) would otherwise leave `running` true with a dead graph.
+    const startRes = c.callAction(id, 'start')
+    if (startRes.error) {
+      throw new Error(`Engine start failed: ${startRes.error.message}`)
+    }
     running = true
 
     applyPreset()
@@ -523,30 +541,56 @@ export function createOpenAIRealtimeToolkit() {
     client?.callAction('openAIRealtimeNode', 'createResponse', {})
   }
 
-  /** Stop the engine, keeping it for a fast restart via {@link OpenAIRealtimeToolkit.start}. {@link OpenAIRealtimeToolkit.release} frees it. */
-  function stop(): void {
+  /**
+   * Halt the graph. Returns the SDK's message if it refused, else null — `running`
+   * only goes false when the graph actually stopped, so a refusal can't leave the
+   * app showing a stopped engine over a live microphone.
+   */
+  function haltGraph(): string | null {
     // Cancel pending timers so they don't fire against a stopped engine.
     localTurn?.reset()
     localTurn = null
     if (client && engineId && running) {
-      client.callAction(engineId, 'stop')
+      const res = client.callAction(engineId, 'stop')
+      if (res.error) {
+        return res.error.message ?? 'unknown error'
+      }
     }
     running = false
-    // Android: restore normal routing + mode.
+    // Android: restore normal routing + mode. Only once the graph is down — while
+    // it's still running the comm route is what keeps AEC engaged.
     if (Platform.OS === 'android') {
       NativeModules.OpenAIRealtimeToolkitAudioSession?.disableCommunicationRoute()?.catch(
         () => {}
       )
     }
+    return null
+  }
+
+  /**
+   * Stop the engine, keeping it for a fast restart via {@link OpenAIRealtimeToolkit.start}.
+   * {@link OpenAIRealtimeToolkit.release} frees it.
+   *
+   * @throws if the engine refuses to stop — `isRunning` stays true, because it is.
+   */
+  function stop(): void {
+    const failure = haltGraph()
+    if (failure) {
+      throw new Error(`Engine stop failed: ${failure}`)
+    }
   }
 
   /** Stop and free the engine (audio session, models). The next {@link OpenAIRealtimeToolkit.start} rebuilds it. */
   function release(): void {
-    stop()
+    // A refused stop must not block the release path: destroying the engine frees
+    // the session either way, and release() is the app's way out of a bad state.
+    haltGraph()
     if (client && engineId) {
       // 'engineID' param per Switchboard.destroyEngine.
       client.callAction('switchboard', 'destroyEngine', { engineID: engineId })
       engineId = null
+      // The engine is gone, so nothing is running even if the stop above failed.
+      running = false
     }
   }
 
@@ -622,6 +666,13 @@ export function createOpenAIRealtimeToolkit() {
     /** Whether the engine is started (between {@link OpenAIRealtimeToolkit.start} and {@link OpenAIRealtimeToolkit.stop}). */
     get isRunning(): boolean {
       return running
+    },
+    /**
+     * Why the last {@link OpenAIRealtimeToolkit.initialize} was refused by the SDK,
+     * or null. Set instead of throwing so a caller in a React effect can surface it.
+     */
+    get initError(): string | null {
+      return initError
     },
   }
 }

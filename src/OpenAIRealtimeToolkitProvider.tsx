@@ -189,6 +189,12 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
       preset: 'custom',
       customKnobs: knobsToPreset(valuesRef.current),
     })
+    // An SDK-level refusal (rejected credentials, extension load failure) is
+    // recorded rather than thrown — a throw here would red-box instead of
+    // landing in `error`. start() will reject with the same reason.
+    if (ea.initError) {
+      setError(ea.initError)
+    }
     // Reflect a native engine that survived the reload still running.
     setIsRunning(ea.isRunning)
 
@@ -258,14 +264,22 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
       await openAIRealtimeToolkitRef.current?.start()
       setIsRunning(true)
     } catch (err) {
-      setError(String(err))
+      // The message, not String(err) — this goes straight into an app's UI, and
+      // String(err) would render as "Error: Engine start failed: …".
+      setError(err instanceof Error ? err.message : String(err))
     }
   }, [requestMicrophonePermission])
 
   const stop = useCallback(() => {
-    openAIRealtimeToolkitRef.current?.stop()
-    setIsRunning(false)
-    setConnectionStatus('none')
+    try {
+      openAIRealtimeToolkitRef.current?.stop()
+      setIsRunning(false)
+      setConnectionStatus('none')
+    } catch (err) {
+      // The graph is still live, so leave isRunning true — offering a Start
+      // button over a hot mic would be worse than reporting the failure.
+      setError(err instanceof Error ? err.message : String(err))
+    }
   }, [])
 
   const release = useCallback(() => {

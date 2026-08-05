@@ -124,7 +124,7 @@ describe('initialize', () => {
     expect(commandFor('initialize')).toBeUndefined()
   })
 
-  it('surfaces an SDK error from switchboard.initialize instead of swallowing it', () => {
+  it('records an SDK error in initError instead of throwing', async () => {
     scriptNative((req) => {
       if (req.method === 'callAction' && req.params?.actionName === 'initialize') {
         return makeRpcResponse(undefined, { code: -1, message: 'Missing appID in configuration.' })
@@ -132,7 +132,11 @@ describe('initialize', () => {
       return makeRpcResponse(null)
     })
     const ea = createOpenAIRealtimeToolkit()
-    expect(() => ea.initialize(CREDS)).toThrow(/Switchboard initialization failed: Missing appID/)
+    // No throw: the provider calls this from an effect, where it would red-box.
+    expect(() => ea.initialize(CREDS)).not.toThrow()
+    expect(ea.initError).toMatch(/Switchboard initialization failed: Missing appID/)
+    // And the reason carries into start(), rather than "call initialize() first".
+    await expect(ea.start()).rejects.toThrow(/Missing appID/)
   })
 
   it('leaves the engine uninitialized after an SDK error so a retry re-sends', () => {
@@ -144,14 +148,22 @@ describe('initialize', () => {
       return makeRpcResponse(null)
     })
     const ea = createOpenAIRealtimeToolkit()
-    expect(() => ea.initialize(CREDS)).toThrow(/Switchboard initialization failed/)
+    ea.initialize(CREDS)
+    expect(ea.initError).toMatch(/Switchboard initialization failed/)
     fail = false
     // initialized stayed false → the second call actually re-sends and succeeds.
-    expect(() => ea.initialize(CREDS)).not.toThrow()
+    ea.initialize(CREDS)
+    expect(ea.initError).toBeNull()
     const initCalls = sentCommands().filter(
       (c) => c.method === 'callAction' && c.params?.actionName === 'initialize'
     )
     expect(initCalls.length).toBe(2)
+  })
+
+  it('still throws for a caller mistake — a blank credential is not an SDK refusal', () => {
+    const ea = createOpenAIRealtimeToolkit()
+    expect(() => ea.initialize({ ...CREDS, appId: '  ' })).toThrow('appId is required')
+    expect(ea.initError).toBeNull()
   })
 
   it('re-adopts the live engine on reload instead of re-initializing or duplicating', async () => {
@@ -245,6 +257,22 @@ describe('start builds and starts the engine', () => {
       (c) => c.method === 'callAction' && c.params.actionName === 'start' && c.params.objectURI === 'engine-1'
     )
     expect(startCmd).toBeDefined()
+  })
+
+  it('throws and stays not-running when the engine refuses to start', async () => {
+    scriptNative((req) => {
+      if (req.method === 'callAction' && req.params?.actionName === 'createEngine') {
+        return makeRpcResponse('engine-1')
+      }
+      if (req.method === 'callAction' && req.params?.actionName === 'start') {
+        return makeRpcResponse(undefined, { code: -1, message: 'Audio session unavailable' })
+      }
+      return makeRpcResponse(null)
+    })
+    const ea = await initializedEngine()
+    await expect(ea.start()).rejects.toThrow(/Engine start failed: Audio session unavailable/)
+    // The critical half: no phantom "running" state over a dead graph.
+    expect(ea.isRunning).toBe(false)
   })
 
   it('throws with the error body when createEngine returns no id', async () => {
@@ -761,6 +789,42 @@ describe('stop', () => {
       (c) => c.method === 'callAction' && c.params.actionName === 'stop' && c.params.objectURI === 'engine-1'
     )
     expect(stopCmd).toBeDefined()
+    expect(ea.isRunning).toBe(false)
+  })
+
+  it('throws and stays running when the engine refuses to stop', async () => {
+    scriptNative((req) => {
+      if (req.method === 'callAction' && req.params?.actionName === 'createEngine') {
+        return makeRpcResponse('engine-1')
+      }
+      if (req.method === 'callAction' && req.params?.actionName === 'stop') {
+        return makeRpcResponse(undefined, { code: -1, message: 'Engine busy' })
+      }
+      return makeRpcResponse(null)
+    })
+    const ea = await initializedEngine()
+    await ea.start()
+    expect(() => ea.stop()).toThrow(/Engine stop failed: Engine busy/)
+    // The mic is still live, so the state must say so.
+    expect(ea.isRunning).toBe(true)
+  })
+
+  it('releases even when the stop is refused, and clears running', async () => {
+    scriptNative((req) => {
+      if (req.method === 'callAction' && req.params?.actionName === 'createEngine') {
+        return makeRpcResponse('engine-1')
+      }
+      if (req.method === 'callAction' && req.params?.actionName === 'stop') {
+        return makeRpcResponse(undefined, { code: -1, message: 'Engine busy' })
+      }
+      return makeRpcResponse(null)
+    })
+    const ea = await initializedEngine()
+    await ea.start()
+    // release() is the escape hatch — a refused stop must not block destroyEngine.
+    expect(() => ea.release()).not.toThrow()
+    expect(commandFor('destroyEngine')).toBeDefined()
+    expect(ea.isRunning).toBe(false)
   })
 })
 

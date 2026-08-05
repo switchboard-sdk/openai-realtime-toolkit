@@ -460,9 +460,14 @@ const {
 } = useOpenAIRealtimeToolkit();
 ```
 
-- **`error` / `connectionStatus`** — one error channel: mic-permission and `start()` failures
-  *and* OpenAI session failures (rejected key, quota, unknown model) land in `error` as a
-  message. `connectionStatus` goes `'error'` with it and **stays** there — the node keeps
+- **`error` / `connectionStatus`** — one error channel. Everything environmental lands in
+  `error` as a message: a Switchboard SDK that refuses to initialize (rejected credentials),
+  a denied mic, a refused engine start or stop, and OpenAI session failures (rejected key,
+  quota, unknown model). Blank credentials are the exception — a caller mistake, so the
+  provider throws on mount.
+- **A refused `stop()` leaves `isRunning` true**, with the reason in `error` — the graph is
+  still live and the mic still hot, so the state stays truthful rather than showing a
+  stopped engine. `release()` always tears down regardless, so it remains the way out. `connectionStatus` goes `'error'` with it and **stays** there — the node keeps
   retrying underneath, but a reconnect attempt won't reset it to `'connecting'`. Both clear
   when a session comes up (or on the next `start()`). Render `error` and you'll see e.g.
   `Incorrect API key provided: sk-…` instead of guessing at a connection that never lands.
