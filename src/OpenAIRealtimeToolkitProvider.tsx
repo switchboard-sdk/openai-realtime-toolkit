@@ -7,12 +7,23 @@ import React, {
   useState,
   type ReactNode,
 } from 'react'
-import { openAIRealtimeToolkit, type OpenAIRealtimeToolkit, type OpenAIRealtimeToolkitTool } from './OpenAIRealtimeToolkit'
+import {
+  openAIRealtimeToolkit,
+  OpenAIRealtimeError,
+  type OpenAIRealtimeErrorCode,
+  type OpenAIRealtimeToolkit,
+  type OpenAIRealtimeToolkitTool,
+} from './OpenAIRealtimeToolkit'
 import { clampSpeed, DEFAULT_MODEL, DEFAULT_VOICE, SPEED_RANGE, type OpenAIVoice } from './voice'
 import { knobsToPreset, resolveKnobValues } from './presets'
 import { type LocalTurnConfig, type KnobValues } from './turnDetection'
 
-/** OpenAI Realtime session connection state. */
+/**
+ * OpenAI Realtime session connection state. `'error'` means the session was
+ * attempted and refused — see {@link OpenAIRealtimeToolkitContextValue.error} for
+ * why. Failures that aren't the session's own (a denied mic, a refused engine
+ * start) leave this at `'none'` and report through `error` alone.
+ */
 export type OpenAIRealtimeToolkitConnectionStatus = 'none' | 'connecting' | 'connected' | 'error'
 
 /**
@@ -43,11 +54,16 @@ export interface OpenAIRealtimeToolkitContextValue {
   /** Whether the engine is currently running. */
   isRunning: boolean
   /**
-   * Last failure message, or null: mic permission and `start()` errors, plus OpenAI
-   * session errors (rejected key, quota, unknown model). Cleared by `start()` and by
-   * a session that comes up.
+   * The outstanding failure, or null. Holds only failures the app has to act on
+   * (`fatal`): a refused SDK init, a denied mic, a refused engine start or stop, and
+   * session failures. Branch on `error.code`, render `error.message`. Cleared by
+   * `start()`, `stop()`, `release()`, and by a session coming up.
+   *
+   * Failures the session absorbed (a tool handler throwing, an undeliverable tool
+   * result) never land here — they'd have nothing to clear them. Pass an `onError`
+   * prop to observe those.
    */
-  error: string | null
+  error: OpenAIRealtimeError | null
   /**
    * OpenAI Realtime session connection state. `'error'` is sticky — the node's
    * reconnect attempts don't reset it to `'connecting'`; only a session that comes
@@ -102,6 +118,23 @@ export interface OpenAIRealtimeToolkitContextValue {
 
 const OpenAIRealtimeToolkitContext = createContext<OpenAIRealtimeToolkitContextValue | null>(null)
 
+/**
+ * Anything the toolkit rejects with is already an {@link OpenAIRealtimeError}; this
+ * only has to cover an unexpected throw. Uses `.message`, not `String(err)`, since
+ * this goes straight into an app's UI — `String(err)` would render as
+ * "Error: Engine start failed: …".
+ */
+function asRealtimeError(err: unknown, fallbackCode: OpenAIRealtimeErrorCode): OpenAIRealtimeError {
+  if (err instanceof OpenAIRealtimeError) {
+    return err
+  }
+  return new OpenAIRealtimeError(
+    fallbackCode,
+    err instanceof Error ? err.message : String(err),
+    true
+  )
+}
+
 /** Props for {@link OpenAIRealtimeToolkitProvider}. Credentials are required; the rest seed initial state. */
 export interface OpenAIRealtimeToolkitProviderProps {
   /** Switchboard app ID (console.switchboard.audio). */
@@ -127,6 +160,13 @@ export interface OpenAIRealtimeToolkitProviderProps {
    * defaults). Change it at runtime via `useOpenAIRealtimeToolkit().localTurnHandling`.
    */
   localTurnHandling?: { enabled?: boolean; config?: Partial<LocalTurnConfig> }
+  /**
+   * Called for **every** failure, including the non-fatal ones that never reach the
+   * `error` state — a tool handler throwing, a tool result that couldn't be
+   * delivered, a session error the conversation survived. Route it to your logger.
+   * Fatal failures arrive here too, and also land in `error`.
+   */
+  onError?: (error: OpenAIRealtimeError) => void
   /** Descendants that read the context via {@link useOpenAIRealtimeToolkit}. */
   children?: ReactNode
 }
@@ -150,9 +190,16 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
 
   const openAIRealtimeToolkitRef = useRef<OpenAIRealtimeToolkit>(openAIRealtimeToolkit)
 
+  // Kept in a ref so a caller passing an inline arrow doesn't re-run the
+  // subscription effect on every render.
+  const onErrorRef = useRef(props.onError)
+  onErrorRef.current = props.onError
+
   const [isRunning, setIsRunning] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [connectionStatus, setConnectionStatus] = useState<OpenAIRealtimeToolkitConnectionStatus>('none')
+  const [error, setError] = useState<OpenAIRealtimeError | null>(null)
+  // Where the session is, straight from its lifecycle events. `connectionStatus`
+  // (below) combines this with `error` to produce the value apps see.
+  const [sessionState, setSessionState] = useState<'none' | 'connecting' | 'connected'>('none')
   const [inputTranscription, setInputTranscription] = useState('')
   const [outputTranscription, setOutputTranscription] = useState('')
   const [hasMicrophonePermission, setHasMicrophonePermission] = useState<boolean | null>(null)
@@ -173,8 +220,29 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
   const valuesRef = useRef(values)
   valuesRef.current = values
 
+  // Every failure funnels through here. `onError` sees all of them; only the ones
+  // the app has to act on are kept in `error`, because a failure the session
+  // absorbed has nothing that would ever clear it again.
+  const reportError = useCallback((err: OpenAIRealtimeError) => {
+    onErrorRef.current?.(err)
+    if (err.fatal) {
+      setError(err)
+    } else if (!onErrorRef.current) {
+      // Non-fatal failures are deliberately not state, so with no `onError` prop
+      // this is the only place they'd show up at all.
+      console.warn(`[OpenAIRealtimeToolkit] ${err.code}: ${err.message}`)
+    }
+  }, [])
+
   useEffect(() => {
     const ea = openAIRealtimeToolkitRef.current!
+
+    // Subscribed before initialize() so an SDK-level refusal (rejected credentials,
+    // extension load failure) is caught here rather than needing a second read of
+    // `initError`. It's recorded rather than thrown because a throw in this effect
+    // would red-box the app instead of landing in `error`.
+    const errorSub = ea.addErrorListener(reportError)
+
     ea.initialize({
       appId,
       appSecret,
@@ -189,41 +257,22 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
       preset: 'custom',
       customKnobs: knobsToPreset(valuesRef.current),
     })
-    // An SDK-level refusal (rejected credentials, extension load failure) is
-    // recorded rather than thrown — a throw here would red-box instead of
-    // landing in `error`. start() will reject with the same reason.
-    if (ea.initError) {
-      setError(ea.initError)
-    }
     // Reflect a native engine that survived the reload still running.
     setIsRunning(ea.isRunning)
 
     // Consume the internal OpenAI event channel and re-surface only the few
     // things worth exposing. Raw events stay internal to OpenAIRealtimeToolkit.
+    // Failures aren't here — they arrive on the error channel above.
     const sub = ea.addEventListener('openai', (e) => {
       switch (e.name) {
         case 'sessionStarting':
         case 'sessionDisconnected':
-          // Keep a known failure visible: the OpenAI node reconnects every few
-          // seconds, so without this a rejected key would show 'error' for an
-          // instant and then sit on 'connecting' forever, indistinguishable from
-          // a slow connect. Only a session that actually comes up clears it.
-          setConnectionStatus((prev) => (prev === 'error' ? 'error' : 'connecting'))
+          setSessionState('connecting')
           break
         case 'sessionCreated':
-          setConnectionStatus('connected')
+          setSessionState('connected')
           setError(null)
           break
-        case 'error': {
-          console.warn('[OpenAIRealtimeToolkit] session error:', e.raw)
-          // Session failures (bad key, quota, unknown model) reach the app through
-          // the same `error` string as engine failures — one channel, with the
-          // reason in it, instead of only a console warning.
-          const message = (e.data as { message?: string } | undefined)?.message
-          setError(message?.trim() ? message : `Session error: ${e.raw}`)
-          setConnectionStatus('error')
-          break
-        }
         case 'inputTranscription':
           setInputTranscription((e.data as { transcript?: string })?.transcript ?? '')
           break
@@ -233,13 +282,14 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
       }
     })
     return () => {
-      // Detach this view's listener only — the engine's lifecycle is app-owned
+      // Detach this view's listeners only — the engine's lifecycle is app-owned
       // (start/stop/release), so unmount never stops a running agent.
       sub.remove()
+      errorSub.remove()
     }
     // Settings are init-only seeds here; runtime changes go through the setters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appId, appSecret, openAIApiKey])
+  }, [appId, appSecret, openAIApiKey, reportError])
 
   // Ensure mic permission before starting so a denial surfaces as an error
   // rather than silent empty input.
@@ -258,34 +308,37 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
     setError(null)
     try {
       if (!(await requestMicrophonePermission())) {
-        setError('Microphone permission denied')
+        reportError(
+          new OpenAIRealtimeError('MIC_PERMISSION_DENIED', 'Microphone permission denied', true)
+        )
         return
       }
       await openAIRealtimeToolkitRef.current?.start()
       setIsRunning(true)
     } catch (err) {
-      // The message, not String(err) — this goes straight into an app's UI, and
-      // String(err) would render as "Error: Engine start failed: …".
-      setError(err instanceof Error ? err.message : String(err))
+      reportError(asRealtimeError(err, 'ENGINE_START_FAILED'))
     }
-  }, [requestMicrophonePermission])
+  }, [requestMicrophonePermission, reportError])
 
   const stop = useCallback(() => {
     try {
       openAIRealtimeToolkitRef.current?.stop()
       setIsRunning(false)
-      setConnectionStatus('none')
+      setSessionState('none')
+      // A deliberate teardown: the last failure is history now.
+      setError(null)
     } catch (err) {
       // The graph is still live, so leave isRunning true — offering a Start
       // button over a hot mic would be worse than reporting the failure.
-      setError(err instanceof Error ? err.message : String(err))
+      reportError(asRealtimeError(err, 'ENGINE_STOP_FAILED'))
     }
-  }, [])
+  }, [reportError])
 
   const release = useCallback(() => {
     openAIRealtimeToolkitRef.current?.release()
     setIsRunning(false)
-    setConnectionStatus('none')
+    setSessionState('none')
+    setError(null)
   }, [])
 
   const setInstructions = useCallback((next: string) => {
@@ -337,6 +390,15 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
   const unregisterTool = useCallback((name: string) => {
     openAIRealtimeToolkitRef.current?.unregisterTool(name)
   }, [])
+
+  // Only the session's own failures move this. A fatal SESSION_FAILED is by
+  // construction one that arrived with no session up (see the toolkit's
+  // `sessionLive`), so it's what's keeping the connection down — and it stays
+  // until a session comes up, so the node's reconnect attempts can't reset it to
+  // 'connecting'. Everything else (a denied mic, a refused start) is a real
+  // failure but not a connection state, and reports through `error` alone.
+  const connectionStatus: OpenAIRealtimeToolkitConnectionStatus =
+    error?.code === 'SESSION_FAILED' ? 'error' : sessionState
 
   const value: OpenAIRealtimeToolkitContextValue = {
     isRunning,

@@ -7,6 +7,68 @@ import { resolveBargeIn, resolveTurnDetection } from './turnDetection'
 import { PRESETS, type Preset, type TurnPreset } from './presets'
 import { clampSpeed, DEFAULT_MODEL, DEFAULT_VOICE, SPEED_RANGE, type OpenAIVoice } from './voice'
 
+/**
+ * Machine-readable cause of an {@link OpenAIRealtimeError}. Branch on this rather
+ * than on the message, which is meant for humans and may change.
+ */
+export type OpenAIRealtimeErrorCode =
+  /** The Switchboard SDK refused to initialize (rejected credentials, extension load failure). */
+  | 'INIT_FAILED'
+  /** An action needed the SDK, which never came up. */
+  | 'NOT_INITIALIZED'
+  /** The user denied microphone access. */
+  | 'MIC_PERMISSION_DENIED'
+  /** The audio graph couldn't be built. */
+  | 'ENGINE_CREATION_FAILED'
+  /** The engine refused to start (audio session unavailable, mic held by another app). */
+  | 'ENGINE_START_FAILED'
+  /** The engine refused to stop — it's still running, and the mic is still hot. */
+  | 'ENGINE_STOP_FAILED'
+  /** OpenAI reported a session-level failure (rejected key, quota, unknown model, bad tool schema). */
+  | 'SESSION_FAILED'
+  /** A tool handler threw. Already reported to the model, which carries on without the result. */
+  | 'TOOL_HANDLER_FAILED'
+  /** A tool's result never reached OpenAI — no live session, or a stale call id. */
+  | 'TOOL_RESULT_UNDELIVERED'
+  /** The model couldn't be resumed after a tool call, so it may sit silent. */
+  | 'RESPONSE_FAILED'
+
+/**
+ * A failure with a machine-readable {@link OpenAIRealtimeError.code}.
+ *
+ * One type on both channels: actions with a caller (`start`, `stop`) reject with
+ * it, and failures with no caller (the session, tool calls) are delivered to
+ * {@link OpenAIRealtimeToolkit.addErrorListener}. Never both for the same failure.
+ */
+export class OpenAIRealtimeError extends Error {
+  /** What failed. */
+  readonly code: OpenAIRealtimeErrorCode
+  /**
+   * Whether this leaves something the app has to act on. `false` means the session
+   * absorbed it and carries on — worth logging, but there's nothing to render and
+   * nothing to clear, so it never lands in the provider's `error` state.
+   */
+  readonly fatal: boolean
+  /** Whatever the underlying layer reported, when there was more than a message. */
+  readonly details?: Record<string, unknown>
+
+  constructor(
+    code: OpenAIRealtimeErrorCode,
+    message: string,
+    fatal: boolean,
+    details?: Record<string, unknown>
+  ) {
+    super(message)
+    this.name = 'OpenAIRealtimeError'
+    this.code = code
+    this.fatal = fatal
+    this.details = details
+  }
+}
+
+/** Handler for {@link OpenAIRealtimeToolkit.addErrorListener}. */
+export type OpenAIRealtimeErrorListener = (error: OpenAIRealtimeError) => void
+
 /** Credentials for {@link OpenAIRealtimeToolkit.initialize}. */
 export interface OpenAIRealtimeToolkitInitializeOptions {
   /** Switchboard app ID (console.switchboard.audio). */
@@ -221,6 +283,22 @@ export function createOpenAIRealtimeToolkit() {
     smartTurn: new Set(),
     openai: new Set(),
   }
+  const errorListeners = new Set<OpenAIRealtimeErrorListener>()
+  // Whether an OpenAI session is currently up. Only used to decide whether a
+  // session failure is fatal: one that arrives with no session is what's keeping
+  // the session down; one that arrives during a live session was survivable.
+  let sessionLive = false
+
+  /** Deliver a no-caller failure to {@link addErrorListener}. */
+  function emitError(
+    code: OpenAIRealtimeErrorCode,
+    message: string,
+    fatal: boolean,
+    details?: Record<string, unknown>
+  ): void {
+    const error = new OpenAIRealtimeError(code, message, fatal, details)
+    errorListeners.forEach((l) => l(error))
+  }
 
   /**
    * Load the Switchboard SDK and its extensions (SileroVAD + Onnx + OpenAI)
@@ -272,6 +350,7 @@ export function createOpenAIRealtimeToolkit() {
       })
       if (res.error) {
         initError = `Switchboard initialization failed: ${res.error.message}`
+        emitError('INIT_FAILED', initError, true)
         return
       }
     }
@@ -299,6 +378,21 @@ export function createOpenAIRealtimeToolkit() {
   }
 
   /**
+   * Subscribe to failures that have no caller to reject: the SDK refusing to
+   * initialize, OpenAI session errors, and tool-call plumbing. Failures from
+   * {@link start} / {@link stop} are *not* delivered here — those reject instead.
+   * @returns a subscription — call `remove()` to stop listening.
+   */
+  function addErrorListener(listener: OpenAIRealtimeErrorListener): OpenAIRealtimeToolkitSubscription {
+    errorListeners.add(listener)
+    return {
+      remove: () => {
+        errorListeners.delete(listener)
+      },
+    }
+  }
+
+  /**
    * Request microphone permission; resolves to whether it's granted. Android
    * uses `PermissionsAndroid` (RECORD_AUDIO); iOS shows the system prompt via
    * AVAudioApplication. Called automatically by {@link OpenAIRealtimeToolkit.start}.
@@ -313,13 +407,21 @@ export function createOpenAIRealtimeToolkit() {
 
   /**
    * Request the mic, build the voice-assistant graph, and start the engine.
-   * @throws if not initialized, the mic is denied, or the engine fails to start.
+   * @throws {OpenAIRealtimeError} if not initialized, the mic is denied, or the
+   * engine fails to start. Nothing is emitted to {@link addErrorListener} — this
+   * has a caller, so the rejection is the report.
    */
   async function start(): Promise<void> {
     if (!initialized || !client) {
       // An SDK refusal recorded by initialize() is the real reason — report that
       // rather than "call initialize() first", which would be misleading.
-      throw new Error(initError ?? 'OpenAIRealtimeToolkit.initialize() must be called before start()')
+      throw initError
+        ? new OpenAIRealtimeError('INIT_FAILED', initError, true)
+        : new OpenAIRealtimeError(
+            'NOT_INITIALIZED',
+            'OpenAIRealtimeToolkit.initialize() must be called before start()',
+            true
+          )
     }
     if (running) {
       return // already running
@@ -329,7 +431,7 @@ export function createOpenAIRealtimeToolkit() {
     const c = client
 
     if (!(await requestMicrophonePermission())) {
-      throw new Error('Microphone permission denied')
+      throw new OpenAIRealtimeError('MIC_PERMISSION_DENIED', 'Microphone permission denied', true)
     }
 
     // Create the engine once; start/stop reuse it, release() frees it.
@@ -342,7 +444,11 @@ export function createOpenAIRealtimeToolkit() {
       )
       id = res.result as string
       if (!id) {
-        throw new Error(`createEngine failed: ${JSON.stringify(res.error ?? res)}`)
+        throw new OpenAIRealtimeError(
+          'ENGINE_CREATION_FAILED',
+          `createEngine failed: ${JSON.stringify(res.error ?? res)}`,
+          true
+        )
       }
       engineId = id
     }
@@ -361,7 +467,11 @@ export function createOpenAIRealtimeToolkit() {
     // another app) would otherwise leave `running` true with a dead graph.
     const startRes = c.callAction(id, 'start')
     if (startRes.error) {
-      throw new Error(`Engine start failed: ${startRes.error.message}`)
+      throw new OpenAIRealtimeError(
+        'ENGINE_START_FAILED',
+        `Engine start failed: ${startRes.error.message}`,
+        true
+      )
     }
     running = true
 
@@ -518,7 +628,13 @@ export function createOpenAIRealtimeToolkit() {
     }))
   }
 
-  /** Run a tool call: execute the handler, submit the result, resume the model. */
+  /**
+   * Run a tool call: execute the handler, submit the result, resume the model.
+   *
+   * Every failure here is non-fatal and goes to {@link addErrorListener}: this runs
+   * from an event callback, so there's no caller to reject, and the conversation
+   * carries on either way. Nothing here touches the app's `error` state.
+   */
   async function handleToolCall(call: ToolCall): Promise<void> {
     const tool = tools.get(call.name)
     try {
@@ -527,18 +643,50 @@ export function createOpenAIRealtimeToolkit() {
       }
       const args = call.argumentsJson ? JSON.parse(call.argumentsJson) : {}
       const result = await tool.handler(args)
-      client?.callAction('openAIRealtimeNode', 'submitToolResult', {
+      // A refusal means the output never reached OpenAI (no live session, or a
+      // stale callId). Deliberately no submitToolError fallback: it needs the same
+      // session and callId, so whatever refused this refuses that too.
+      const res = client?.callAction('openAIRealtimeNode', 'submitToolResult', {
         callId: call.callId,
         outputJson: JSON.stringify(result ?? null),
       })
+      if (res?.error) {
+        emitError(
+          'TOOL_RESULT_UNDELIVERED',
+          `submitToolResult for '${call.name}' failed: ${res.error.message}`,
+          false,
+          { tool: call.name, callId: call.callId }
+        )
+      }
     } catch (err) {
-      client?.callAction('openAIRealtimeNode', 'submitToolError', {
+      // The handler threw (or there was no such tool). The model is told, and
+      // answers without the result — so this is telemetry, not an app failure.
+      emitError('TOOL_HANDLER_FAILED', `Tool '${call.name}' failed: ${String(err)}`, false, {
+        tool: call.name,
+        callId: call.callId,
+      })
+      const res = client?.callAction('openAIRealtimeNode', 'submitToolError', {
         callId: call.callId,
         errorJson: JSON.stringify({ error: String(err) }),
       })
+      if (res?.error) {
+        emitError(
+          'TOOL_RESULT_UNDELIVERED',
+          `submitToolError for '${call.name}' failed: ${res.error.message}`,
+          false,
+          { tool: call.name, callId: call.callId }
+        )
+      }
     }
-    // Resume so the model speaks using the tool output.
-    client?.callAction('openAIRealtimeNode', 'createResponse', {})
+    // Resume so the model speaks using the tool output. Still attempted after a
+    // failed submit — a model left waiting is worse than one answering without
+    // the tool output.
+    const resumed = client?.callAction('openAIRealtimeNode', 'createResponse', {})
+    if (resumed?.error) {
+      emitError('RESPONSE_FAILED', `createResponse failed: ${resumed.error.message}`, false, {
+        tool: call.name,
+      })
+    }
   }
 
   /**
@@ -557,6 +705,9 @@ export function createOpenAIRealtimeToolkit() {
       }
     }
     running = false
+    // The graph is down, so no session survives it — a failure arriving after this
+    // is keeping the next session down, not surviving the current one.
+    sessionLive = false
     // Android: restore normal routing + mode. Only once the graph is down — while
     // it's still running the comm route is what keeps AEC engaged.
     if (Platform.OS === 'android') {
@@ -571,12 +722,13 @@ export function createOpenAIRealtimeToolkit() {
    * Stop the engine, keeping it for a fast restart via {@link OpenAIRealtimeToolkit.start}.
    * {@link OpenAIRealtimeToolkit.release} frees it.
    *
-   * @throws if the engine refuses to stop — `isRunning` stays true, because it is.
+   * @throws {OpenAIRealtimeError} if the engine refuses to stop — `isRunning`
+   * stays true, because it is.
    */
   function stop(): void {
     const failure = haltGraph()
     if (failure) {
-      throw new Error(`Engine stop failed: ${failure}`)
+      throw new OpenAIRealtimeError('ENGINE_STOP_FAILED', `Engine stop failed: ${failure}`, true)
     }
   }
 
@@ -637,6 +789,23 @@ export function createOpenAIRealtimeToolkit() {
     if (type === 'openai' && event.name === 'toolCall') {
       handleToolCall(event.data as ToolCall)
     }
+    if (type === 'openai') {
+      if (event.name === 'sessionCreated') {
+        sessionLive = true
+      } else if (event.name === 'sessionStarting' || event.name === 'sessionDisconnected') {
+        sessionLive = false
+      } else if (event.name === 'error') {
+        // Fatal only when no session is up: then this is what's keeping it down.
+        // During a live session the conversation survived it, so it's telemetry.
+        const message = (event.data as { message?: string } | undefined)?.message
+        emitError(
+          'SESSION_FAILED',
+          message?.trim() ? message : `Session error: ${event.raw}`,
+          !sessionLive,
+          { raw }
+        )
+      }
+    }
     // On-device turn detection: SileroVAD speech edges drive barge-in + turn-end.
     if (type === 'vad') {
       if (event.name === 'speechStarted') {
@@ -651,6 +820,7 @@ export function createOpenAIRealtimeToolkit() {
   return {
     initialize,
     addEventListener,
+    addErrorListener,
     requestMicrophonePermission,
     start,
     setInstructions,

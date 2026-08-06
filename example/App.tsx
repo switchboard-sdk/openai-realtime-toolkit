@@ -102,7 +102,7 @@ function Screen(): React.JSX.Element {
       <StatusBar barStyle="light-content" backgroundColor={backgroundColor} />
       <Text style={styles.title}>OpenAIRealtimeToolkit</Text>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <Text style={styles.error}>{error.message}</Text> : null}
 
       <View style={styles.section}>
         <Text style={styles.sectionHeader}>On-device</Text>

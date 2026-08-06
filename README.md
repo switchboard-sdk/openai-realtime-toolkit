@@ -275,15 +275,16 @@ function Screen() {
         <Text>{isRunning ? 'Stop' : 'Start talking'}</Text>
       </TouchableOpacity>
       <Text>Connection: {connectionStatus}</Text>
-      {!!error && <Text>Error: {error}</Text>}
+      {!!error && <Text>Error: {error.message}</Text>}
     </View>
   );
 }
 ```
 
 That's the whole app — `start()` handles mic permission and connects, and the model can
-call the `get_time` tool (try asking it the time). Render `error`, as above: a rejected
-API key or a denied mic shows up there ([details](#the-useopenairealtimetoolkit-hook)).
+call the `get_time` tool (try asking it the time). Render `error.message`, as above: a
+rejected API key or a denied mic shows up there
+([details](#the-useopenairealtimetoolkit-hook)).
 Layout is yours — the snippet's `View` keeps it minimal. Turn-detection tuning and styling
 are opt-in; see below and [`example/App.tsx`](example/App.tsx) for the fuller version.
 
@@ -410,6 +411,15 @@ useTool({
 });
 ```
 
+A handler that throws is reported to the model as a tool error, so the conversation
+continues — the model answers without the result rather than stalling. Nothing about a
+tool call reaches `error`: the model is the one that has to recover, and there'd be
+nothing to clear it afterwards. To watch them anyway, pass `onError` to the provider and
+filter on `code` — `TOOL_HANDLER_FAILED` for a handler that threw,
+`TOOL_RESULT_UNDELIVERED` when the result couldn't reach OpenAI at all (dead session,
+stale call id), `RESPONSE_FAILED` when the model couldn't be resumed. See
+[Errors](#errors).
+
 `useTool` scopes the tool to the component (registers on mount, unregisters on
 unmount, re-registers on `name`/`description`/`parameters` change) and keeps the
 `handler` live across renders — no stale closures. `parameters` is optional (omit
@@ -442,7 +452,8 @@ The public surface is the provider, the `useOpenAIRealtimeToolkit()` hook, and `
 | `OpenAIRealtimeToolkitTool` | Tool shape: `{ name, description, parameters?, handler }`. `parameters` (JSON Schema) is optional — omit for a no-arg tool. |
 | `QUIET_CONFIG` / `BALANCED_CONFIG` / `NOISY_CONFIG` / `DEFAULT_CONFIG` | Turn-config presets (full `LocalTurnConfig` sets) for `setConfig(...)`. `DEFAULT_CONFIG` is the base for a from-scratch replace. |
 | `VOICES` / `SPEED_RANGE` | Every selectable voice, and the `{ min, max, default }` the node accepts for `speed` — for building a picker / slider. |
-| Types | `LocalTurnConfig`, `OpenAIVoice`, `OpenAIRealtimeToolkitProviderProps`, `OpenAIRealtimeToolkitContextValue`, `LocalTurnHandling`, `OpenAIRealtimeToolkitConnectionStatus`. |
+| `OpenAIRealtimeError` | Every failure the toolkit reports — an `Error` with a machine-readable `code`. See [Errors](#errors). |
+| Types | `LocalTurnConfig`, `OpenAIVoice`, `OpenAIRealtimeErrorCode`, `OpenAIRealtimeToolkitProviderProps`, `OpenAIRealtimeToolkitContextValue`, `LocalTurnHandling`, `OpenAIRealtimeToolkitConnectionStatus`. |
 
 ### The `useOpenAIRealtimeToolkit()` hook
 
@@ -461,21 +472,68 @@ const {
 } = useOpenAIRealtimeToolkit();
 ```
 
-- **`error` / `connectionStatus`** — one error channel. Everything environmental lands in
-  `error` as a message: a Switchboard SDK that refuses to initialize (rejected credentials),
-  a denied mic, a refused engine start or stop, and OpenAI session failures (rejected key,
-  quota, unknown model). Blank credentials are the exception — a caller mistake, so the
-  provider throws on mount.
+- **`error` / `connectionStatus`** — see [Errors](#errors) below.
 - **A refused `stop()` leaves `isRunning` true**, with the reason in `error` — the graph is
   still live and the mic still hot, so the state stays truthful rather than showing a
-  stopped engine. `release()` always tears down regardless, so it remains the way out. `connectionStatus` goes `'error'` with it and **stays** there — the node keeps
-  retrying underneath, but a reconnect attempt won't reset it to `'connecting'`. Both clear
-  when a session comes up (or on the next `start()`). Render `error` and you'll see e.g.
-  `Incorrect API key provided: sk-…` instead of guessing at a connection that never lands.
+  stopped engine. `release()` always tears down regardless, so it remains the way out.
 - **`stop()`** pauses but keeps the engine warm for a fast restart; **`release()`** frees native resources (the next `start()` rebuilds).
 - **`setVoice` / `setSpeed`** — see [Voice, speed, and model](#voice-speed-and-model); `setVoice` drops the session context, `setSpeed` is free. `model` has no setter — it's fixed at provider mount.
 - **`localTurnHandling`** → `{ enabled, setEnabled, config, setConfig }`. Read a knob as `config.x`; write with `setConfig({ x })` (partial = tweak, full set = select a preset). Applies only while `enabled` — see [Runtime settings](#runtime-settings).
 - **`registerTool(tool)` / `unregisterTool(name)`** — imperative escape hatch for dynamic tool sets (add replaces a same-named tool). Prefer `useTool`.
+
+## Errors
+
+Every failure is an `OpenAIRealtimeError`: a real `Error` (so `instanceof` and `.message`
+work) carrying a machine-readable `code`, a `fatal` flag, and sometimes `details`.
+
+Failures are split by **how long they last**, not by where they came from:
+
+- **`error`** — the outstanding failure the app has to act on, or null. A refused SDK init,
+  a denied mic, a refused engine start or stop, a session that won't come up. Durable:
+  it stays until something can clear it, which is `start()`, `stop()`, `release()`, or a
+  session coming up.
+- **`onError`** (provider prop) — called for **every** failure, including the ones that
+  never reach `error` because the session absorbed them and carried on: a tool handler
+  throwing, an undeliverable tool result, a session error during a live session. These
+  are moments, not conditions — nothing would ever clear them, so they aren't state.
+  Route them to your logger. With no `onError` prop they're `console.warn`ed instead,
+  so they don't vanish silently.
+
+```tsx
+<OpenAIRealtimeToolkitProvider {...creds} onError={(e) => Sentry.captureException(e)}>
+```
+
+```tsx
+const { error, connectionStatus } = useOpenAIRealtimeToolkit();
+
+if (error?.code === 'MIC_PERMISSION_DENIED') return <OpenSettingsPrompt />;
+if (error) return <Text>{error.message}</Text>;
+```
+
+| `code` | Meaning | `fatal` |
+| --- | --- | --- |
+| `INIT_FAILED` | The Switchboard SDK refused to initialize (rejected credentials, extension load failure). | yes |
+| `NOT_INITIALIZED` | An action needed the SDK, which never came up. | yes |
+| `MIC_PERMISSION_DENIED` | The user denied microphone access. | yes |
+| `ENGINE_CREATION_FAILED` | The audio graph couldn't be built. | yes |
+| `ENGINE_START_FAILED` | The engine refused to start (audio session unavailable, mic held by another app). | yes |
+| `ENGINE_STOP_FAILED` | The engine refused to stop — still running, mic still hot. | yes |
+| `SESSION_FAILED` | OpenAI reported a session failure (bad key, quota, unknown model, bad tool schema). | only when no session is up |
+| `TOOL_HANDLER_FAILED` | A tool handler threw. Already reported to the model. | no |
+| `TOOL_RESULT_UNDELIVERED` | A tool result never reached OpenAI (dead session, stale call id). | no |
+| `RESPONSE_FAILED` | The model couldn't be resumed after a tool call. | no |
+
+`connectionStatus` (`'none' | 'connecting' | 'connected' | 'error'`) tracks the OpenAI
+session and nothing else. It reads `'error'` only when the session itself was attempted
+and refused — and stays there, so the node's reconnect attempts can't make a rejected key
+look like a slow connect; only a session coming up clears it. A `SESSION_FAILED` that
+arrives *during* a live session is non-fatal and leaves it `'connected'`, because the
+conversation still works. Failures that aren't the session's own (a denied mic, a refused
+engine start) leave it `'none'` and report through `error` alone — so render `error`
+first, then fall back to `connectionStatus` for the connection chrome.
+
+Blank credentials are the one exception to all of this: that's a caller mistake, not a
+runtime failure, so the provider throws on mount.
 
 ## Running the example
 

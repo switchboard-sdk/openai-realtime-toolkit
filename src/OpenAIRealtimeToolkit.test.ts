@@ -1,7 +1,11 @@
 jest.mock('./NativeOpenAIRealtimeToolkit')
 
 import { PermissionsAndroid, Platform } from 'react-native'
-import { createOpenAIRealtimeToolkit, type OpenAIRealtimeToolkit } from './OpenAIRealtimeToolkit'
+import {
+  createOpenAIRealtimeToolkit,
+  OpenAIRealtimeError,
+  type OpenAIRealtimeToolkit,
+} from './OpenAIRealtimeToolkit'
 import NativeOpenAIRealtimeToolkit from './NativeOpenAIRealtimeToolkit'
 import { makeRpcResponse } from './test-helpers'
 
@@ -139,6 +143,22 @@ describe('initialize', () => {
     await expect(ea.start()).rejects.toThrow(/Missing appID/)
   })
 
+  it('announces an SDK refusal on the error channel as well as initError', () => {
+    scriptNative((req) => {
+      if (req.method === 'callAction' && req.params?.actionName === 'initialize') {
+        return makeRpcResponse(undefined, { code: -1, message: 'Missing appID in configuration.' })
+      }
+      return makeRpcResponse(null)
+    })
+    const ea = createOpenAIRealtimeToolkit()
+    const errors: OpenAIRealtimeError[] = []
+    ea.addErrorListener((e) => errors.push(e))
+    ea.initialize(CREDS)
+    expect(errors.map((e) => e.code)).toEqual(['INIT_FAILED'])
+    expect(errors[0].fatal).toBe(true)
+    expect(errors[0].message).toMatch(/Missing appID/)
+  })
+
   it('leaves the engine uninitialized after an SDK error so a retry re-sends', () => {
     let fail = true
     scriptNative((req) => {
@@ -207,6 +227,19 @@ describe('start guards', () => {
     await expect(ea.start()).rejects.toThrow('Microphone permission denied')
     // Engine was never created because permission gate failed first.
     expect(commandFor('createEngine')).toBeUndefined()
+  })
+
+  it('rejects with a coded error, and reports it nowhere else', async () => {
+    native.requestMicrophonePermission.mockResolvedValue(false)
+    const ea = await initializedEngine()
+    const errors: OpenAIRealtimeError[] = []
+    ea.addErrorListener((e) => errors.push(e))
+    await expect(ea.start()).rejects.toMatchObject({
+      code: 'MIC_PERMISSION_DENIED',
+      fatal: true,
+    })
+    // One failure, one channel: this had a caller, so the rejection is the report.
+    expect(errors).toEqual([])
   })
 })
 
@@ -579,6 +612,56 @@ describe('registerTool', () => {
   })
 })
 
+describe('session failures are classified by whether a session is up', () => {
+  function engineWithErrors() {
+    const ea = createOpenAIRealtimeToolkit()
+    const errors: OpenAIRealtimeError[] = []
+    ea.addErrorListener((e) => errors.push(e))
+    ea.initialize(CREDS)
+    return { ea, errors }
+  }
+
+  it('is fatal when no session has come up — this is what is keeping it down', () => {
+    const { errors } = engineWithErrors()
+    emitEvent('x.openAIRealtimeNode', 'sessionStarting')
+    emitEvent('x.openAIRealtimeNode', 'error', { message: 'Incorrect API key provided: sk-…' })
+    expect(errors).toHaveLength(1)
+    expect(errors[0].code).toBe('SESSION_FAILED')
+    expect(errors[0].fatal).toBe(true)
+    expect(errors[0].message).toBe('Incorrect API key provided: sk-…')
+  })
+
+  it('is non-fatal during a live session — the conversation survived it', () => {
+    const { errors } = engineWithErrors()
+    emitEvent('x.openAIRealtimeNode', 'sessionCreated')
+    emitEvent('x.openAIRealtimeNode', 'error', { message: 'tools is not valid JSON.' })
+    expect(errors[0].fatal).toBe(false)
+  })
+
+  it('goes back to fatal once the session drops', () => {
+    const { errors } = engineWithErrors()
+    emitEvent('x.openAIRealtimeNode', 'sessionCreated')
+    emitEvent('x.openAIRealtimeNode', 'sessionDisconnected')
+    emitEvent('x.openAIRealtimeNode', 'error', { message: 'quota exceeded' })
+    expect(errors[0].fatal).toBe(true)
+  })
+
+  it('falls back to the raw payload when the failure carries no message', () => {
+    const { errors } = engineWithErrors()
+    emitEvent('x.openAIRealtimeNode', 'error', {})
+    expect(errors[0].message).toMatch(/^Session error: /)
+  })
+
+  it('still fans the failure out on the openai event channel', () => {
+    const { ea, errors } = engineWithErrors()
+    const openai: any[] = []
+    ea.addEventListener('openai', (e) => openai.push(e))
+    emitEvent('x.openAIRealtimeNode', 'error', { message: 'boom' })
+    expect(openai.map((e) => e.name)).toEqual(['error'])
+    expect(errors).toHaveLength(1)
+  })
+})
+
 describe('event dispatch and classification', () => {
   it('classifies a dotted node URI by its last segment', () => {
     const ea = createOpenAIRealtimeToolkit()
@@ -711,6 +794,84 @@ describe('tool-call handling', () => {
     expect(commandFor('submitToolResult')).toBeUndefined()
     expect(commandFor('createResponse')).toBeDefined()
   })
+
+  it('reports an undeliverable tool result — the model never got it', async () => {
+    scriptNative((req) => {
+      if (req.method === 'callAction' && req.params?.actionName === 'submitToolResult') {
+        // What the node returns for a stale callId or a dead session.
+        return makeRpcResponse(undefined, { code: -1, message: 'Failed to submit tool result.' })
+      }
+      return makeRpcResponse(null)
+    })
+    const ea = createOpenAIRealtimeToolkit()
+    const errors: OpenAIRealtimeError[] = []
+    ea.addErrorListener((e) => errors.push(e))
+    ea.initialize(CREDS)
+    ea.registerTool({ name: 'echo', description: 'd', parameters: {}, handler: () => 'ok' })
+    emitToolCall('echo', '{}')
+    await flushMicrotasks()
+    expect(errors).toHaveLength(1)
+    expect(errors[0].code).toBe('TOOL_RESULT_UNDELIVERED')
+    expect(errors[0].message).toContain('Failed to submit tool result.')
+    // Non-fatal: the session is what it is, and the conversation carries on.
+    expect(errors[0].fatal).toBe(false)
+    expect(errors[0].details).toMatchObject({ tool: 'echo' })
+    // No submitToolError fallback — it needs the same session and callId.
+    expect(commandFor('submitToolError')).toBeUndefined()
+    // The model is still resumed rather than left waiting.
+    expect(commandFor('createResponse')).toBeDefined()
+  })
+
+  it('reports a handler that throws, and still tells the model', async () => {
+    const ea = createOpenAIRealtimeToolkit()
+    const errors: OpenAIRealtimeError[] = []
+    ea.addErrorListener((e) => errors.push(e))
+    ea.initialize(CREDS)
+    ea.registerTool({
+      name: 'boom',
+      description: 'd',
+      parameters: {},
+      handler: () => {
+        throw new Error('kaboom')
+      },
+    })
+    emitToolCall('boom', '{}')
+    await flushMicrotasks()
+    expect(errors.map((e) => e.code)).toEqual(['TOOL_HANDLER_FAILED'])
+    expect(errors[0].message).toContain('kaboom')
+    // The model is told and answers without the result, so this is telemetry only.
+    expect(errors[0].fatal).toBe(false)
+    expect(commandFor('submitToolError')).toBeDefined()
+  })
+
+  it('reports a refused resume', async () => {
+    scriptNative((req) => {
+      if (req.method === 'callAction' && req.params?.actionName === 'createResponse') {
+        return makeRpcResponse(undefined, { code: -1, message: 'Failed to create response.' })
+      }
+      return makeRpcResponse(null)
+    })
+    const ea = createOpenAIRealtimeToolkit()
+    const errors: OpenAIRealtimeError[] = []
+    ea.addErrorListener((e) => errors.push(e))
+    ea.initialize(CREDS)
+    ea.registerTool({ name: 'echo', description: 'd', parameters: {}, handler: () => 'ok' })
+    emitToolCall('echo', '{}')
+    await flushMicrotasks()
+    expect(errors.map((e) => e.code)).toEqual(['RESPONSE_FAILED'])
+    expect(errors[0].message).toContain('Failed to create response.')
+  })
+
+  it('reports nothing when everything succeeds', async () => {
+    const ea = createOpenAIRealtimeToolkit()
+    const errors: OpenAIRealtimeError[] = []
+    ea.addErrorListener((e) => errors.push(e))
+    ea.initialize(CREDS)
+    ea.registerTool({ name: 'echo', description: 'd', parameters: {}, handler: () => 'ok' })
+    emitToolCall('echo', '{}')
+    await flushMicrotasks()
+    expect(errors).toEqual([])
+  })
 })
 
 describe('vad edges drive the turn controller', () => {
@@ -804,7 +965,9 @@ describe('stop', () => {
     })
     const ea = await initializedEngine()
     await ea.start()
-    expect(() => ea.stop()).toThrow(/Engine stop failed: Engine busy/)
+    expect(() => ea.stop()).toThrow(
+      expect.objectContaining({ code: 'ENGINE_STOP_FAILED', fatal: true })
+    )
     // The mic is still live, so the state must say so.
     expect(ea.isRunning).toBe(true)
   })

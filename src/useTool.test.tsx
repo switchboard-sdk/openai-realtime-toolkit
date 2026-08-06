@@ -12,6 +12,8 @@ import { Text } from 'react-native'
 // We exercise the REAL hook through a REAL OpenAIRealtimeToolkitProvider (so the
 // useTool → useOpenAIRealtimeToolkit → registerTool/unregisterTool path is
 // genuine) and observe the mocked engine singleton.
+jest.mock('./NativeOpenAIRealtimeToolkit')
+
 jest.mock('./OpenAIRealtimeToolkit', () => ({
   openAIRealtimeToolkit: {
     initialize: jest.fn(),
@@ -19,7 +21,11 @@ jest.mock('./OpenAIRealtimeToolkit', () => ({
     registerTool: jest.fn(),
     unregisterTool: jest.fn(),
     addEventListener: jest.fn(() => ({ remove: jest.fn() })),
+    addErrorListener: jest.fn(() => ({ remove: jest.fn() })),
   },
+  // The provider constructs this on a failed start(); these tests never fail one,
+  // but the import has to resolve.
+  OpenAIRealtimeError: jest.requireActual('./OpenAIRealtimeToolkit').OpenAIRealtimeError,
 }))
 
 import { OpenAIRealtimeToolkitProvider, useTool } from './OpenAIRealtimeToolkitProvider'
