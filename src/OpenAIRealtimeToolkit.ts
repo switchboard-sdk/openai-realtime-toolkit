@@ -75,8 +75,11 @@ export interface OpenAIRealtimeToolkitInitializeOptions {
   appId: string
   /** Switchboard app secret. */
   appSecret: string
-  /** OpenAI API key, used by the OpenAI Realtime node. */
-  openAIApiKey: string
+  /**
+   * Your OpenAI API key, used by the OpenAI Realtime node. Optional while you're
+   * trying the toolkit out; required for an app you ship.
+   */
+  openAIApiKey?: string
   /**
    * System prompt for the OpenAI Realtime model. Update it later with
    * {@link OpenAIRealtimeToolkit.setInstructions}.
@@ -315,17 +318,21 @@ export function createOpenAIRealtimeToolkit() {
       return
     }
     initError = null
-    // Fail loudly on missing/blank credentials. The SDK rejects a missing
-    // appID/appSecret asynchronously (via license validation) and only *logs* a
-    // bad OpenAI key, so without these guards a config typo fails silently.
+    // Fail loudly on missing/blank Switchboard credentials — the SDK rejects them
+    // asynchronously (via license validation), so without these guards a config
+    // typo fails silently.
     if (!options.appId || options.appId.trim() === '') {
       throw new Error('appId is required')
     }
     if (!options.appSecret || options.appSecret.trim() === '') {
       throw new Error('appSecret is required')
     }
-    if (!options.openAIApiKey || options.openAIApiKey.trim() === '') {
-      throw new Error('openAIApiKey is required')
+    const openAIApiKey = options.openAIApiKey?.trim() ?? ''
+    if (openAIApiKey === '') {
+      console.warn(
+        '[OpenAIRealtimeToolkit] No openAIApiKey provided — running against the shared test key, ' +
+          'which is rate-limited and rotated without notice. Provide your own key before shipping.'
+      )
     }
 
     instructions = options.instructions ?? ''
@@ -345,7 +352,8 @@ export function createOpenAIRealtimeToolkit() {
           Silero: {},
           Onnx: {},
           SmartTurn: {},
-          OpenAI: { apiKey: options.openAIApiKey },
+          // Omitting apiKey leaves the node on the test key that ships with the SDK.
+          OpenAI: openAIApiKey === '' ? {} : { apiKey: openAIApiKey },
         },
       })
       if (res.error) {

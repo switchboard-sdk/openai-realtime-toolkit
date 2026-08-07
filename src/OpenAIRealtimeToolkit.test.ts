@@ -112,20 +112,36 @@ describe('initialize', () => {
     expect(native.processCommand.mock.calls.length).toBe(callsAfterFirst)
   })
 
-  // Credential guards: a blank key must throw here (with a field-named error)
-  // rather than reaching the SDK, which rejects appID/appSecret asynchronously
-  // and only logs a bad OpenAI key — both silent from the caller's view.
+  // Credential guards: a blank Switchboard credential must throw here (with a
+  // field-named error) rather than reaching the SDK, which rejects appID/appSecret
+  // asynchronously — silent from the caller's view.
   it.each([
     ['appId', { ...CREDS, appId: '' }],
     ['appId', { ...CREDS, appId: '   ' }],
     ['appSecret', { ...CREDS, appSecret: '' }],
-    ['openAIApiKey', { ...CREDS, openAIApiKey: '' }],
-    ['openAIApiKey', { ...CREDS, openAIApiKey: undefined as unknown as string }],
   ])('throws "%s is required" for a missing/blank %s', (field, creds) => {
     const ea = createOpenAIRealtimeToolkit()
     expect(() => ea.initialize(creds)).toThrow(`${field} is required`)
     // Nothing was sent to the SDK — the guard runs before the RPC call.
     expect(commandFor('initialize')).toBeUndefined()
+  })
+
+  // The OpenAI key is optional — omitted, the node stays on the SDK's test key.
+  it.each([
+    ['omitted', { ...CREDS, openAIApiKey: undefined }],
+    ['blank', { ...CREDS, openAIApiKey: '   ' }],
+  ])('initializes without an apiKey and warns when the key is %s', (_case, creds) => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const ea = createOpenAIRealtimeToolkit()
+    expect(() => ea.initialize(creds)).not.toThrow()
+    expect(commandFor('initialize')?.params?.params?.extensions).toEqual({
+      Silero: {},
+      Onnx: {},
+      SmartTurn: {},
+      OpenAI: {},
+    })
+    expect(warnSpy.mock.calls[0][0]).toMatch(/No openAIApiKey provided/)
+    warnSpy.mockRestore()
   })
 
   it('records an SDK error in initError instead of throwing', async () => {

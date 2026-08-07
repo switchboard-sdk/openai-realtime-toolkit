@@ -135,14 +135,17 @@ function asRealtimeError(err: unknown, fallbackCode: OpenAIRealtimeErrorCode): O
   )
 }
 
-/** Props for {@link OpenAIRealtimeToolkitProvider}. Credentials are required; the rest seed initial state. */
+/** Props for {@link OpenAIRealtimeToolkitProvider}. The Switchboard credentials are required; the rest seed initial state. */
 export interface OpenAIRealtimeToolkitProviderProps {
   /** Switchboard app ID (console.switchboard.audio). */
   appId: string
   /** Switchboard app secret. */
   appSecret: string
-  /** OpenAI API key, used by the OpenAI Realtime node. */
-  openAIApiKey: string
+  /**
+   * Your OpenAI API key, used by the OpenAI Realtime node. Optional while you're
+   * trying the toolkit out; required for an app you ship.
+   */
+  openAIApiKey?: string
   /** System prompt. Initial value; also settable via `useOpenAIRealtimeToolkit().setInstructions`. */
   instructions?: string
   /** Voice the model speaks with (defaults to `'cedar'`). Initial value; also settable via the hook. */
@@ -183,9 +186,6 @@ export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProvid
   }
   if (!appSecret?.trim()) {
     throw new Error('OpenAIRealtimeToolkitProvider: appSecret is required')
-  }
-  if (!openAIApiKey?.trim()) {
-    throw new Error('OpenAIRealtimeToolkitProvider: openAIApiKey is required')
   }
 
   const openAIRealtimeToolkitRef = useRef<OpenAIRealtimeToolkit>(openAIRealtimeToolkit)

@@ -138,11 +138,11 @@ describe('credential validation', () => {
     errSpy.mockRestore()
   })
 
-  it('throws when openAIApiKey is empty or whitespace', () => {
-    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-    expect(() => renderProvider({ openAIApiKey: '' })).toThrow('openAIApiKey is required')
-    expect(() => renderProvider({ openAIApiKey: '   ' })).toThrow('openAIApiKey is required')
-    errSpy.mockRestore()
+  it('accepts a missing openAIApiKey — the key is optional', () => {
+    expect(() => renderProvider({ openAIApiKey: undefined })).not.toThrow()
+    expect(openAIRealtimeToolkit.initialize).toHaveBeenCalledWith(
+      expect.objectContaining({ openAIApiKey: undefined })
+    )
   })
 })
 

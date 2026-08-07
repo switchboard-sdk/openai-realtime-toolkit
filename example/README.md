@@ -12,13 +12,26 @@ Native 0.86, new architecture.
 there's nothing to configure to try it out. Swap in your own from
 [console.switchboard.audio](https://console.switchboard.audio) for your real app.
 
-**OpenAI** — provide your own key. The app reads it from `@env`
-(via `react-native-dotenv`), so it goes in a `.env` file, not in source:
+**OpenAI** — nothing to configure either. The app passes no `openAIApiKey`, so it
+runs on a shared test key that comes with the demo Switchboard credentials. That
+key is rate-limited and **rotated without notice** — it's there so you can try the
+example, not to ship with.
+
+To use **your own key**, copy the template and fill it in — the app reads it from
+`@env` (via `react-native-dotenv`), so it goes in a `.env` file, not in source:
 
 ```sh
 cp .env.example .env
 # then edit .env and set your key:
 # OPENAI_API_KEY=sk-...
+```
+
+Then uncomment the two lines in [`App.tsx`](App.tsx) that wire it up:
+
+```tsx
+import { OPENAI_API_KEY } from '@env';
+// …
+<OpenAIRealtimeToolkitProvider openAIApiKey={OPENAI_API_KEY} … >
 ```
 
 `.env` is gitignored; only the `.env.example` template is committed.

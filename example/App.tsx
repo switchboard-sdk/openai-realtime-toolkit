@@ -27,7 +27,6 @@ import {
   BALANCED_CONFIG,
   NOISY_CONFIG,
 } from '@synervoz/openai-realtime-toolkit';
-import { OPENAI_API_KEY } from '@env';
 import { colors } from './colors';
 
 // ── Credentials ──────────────────────────────────────────────────────────────
@@ -35,6 +34,12 @@ import { colors } from './colors';
 // Don't commit real secrets.
 const SWITCHBOARD_APP_ID = '6a75f93fc9ccd4a075fa1669';
 const SWITCHBOARD_APP_SECRET = '28b7400732e5dd15e7297764b9cf4d50cc9ec92d';
+
+// No `openAIApiKey` is passed below, so the demo runs on a shared test key that's
+// rate-limited and rotated without notice — fine for trying the toolkit out,
+// never for an app you ship. To use your own key: copy `.env.example` to `.env`,
+// set OPENAI_API_KEY there, then uncomment the import and the provider prop.
+// import { OPENAI_API_KEY } from '@env';
 
 // System prompt for the OpenAI Realtime model.
 const INSTRUCTIONS =
@@ -48,7 +53,7 @@ export default function App(): React.JSX.Element {
       <OpenAIRealtimeToolkitProvider
         appId={SWITCHBOARD_APP_ID}
         appSecret={SWITCHBOARD_APP_SECRET}
-        openAIApiKey={OPENAI_API_KEY}
+        // openAIApiKey={OPENAI_API_KEY}
         instructions={INSTRUCTIONS}
         localTurnHandling={{
           enabled: false,

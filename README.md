@@ -206,22 +206,29 @@ At the **app** level you still handle:
 
 - **`NSMicrophoneUsageDescription`** in `Info.plist` (see [iOS install](#ios)) — the mic
   prompt string. (The microphone isn't a privacy-manifest API; this string is all it needs.)
-- **App Store privacy labels** — audio is streamed to the **OpenAI Realtime API** with
-  your key, so disclose that (e.g. "Audio Data"). OpenAIRealtimeToolkit itself stores nothing.
+- **App Store privacy labels** — audio is streamed to the **OpenAI Realtime API**, so
+  disclose that (e.g. "Audio Data"). OpenAIRealtimeToolkit itself stores nothing.
 
 ## Credentials
 
-The provider takes three: a **Switchboard** `appId` / `appSecret` pair, and your **OpenAI**
-API key.
+The provider takes a **Switchboard** `appId` / `appSecret` pair (required) and your
+**OpenAI** API key (optional — see below).
 
 - **Switchboard** — sign up at [console.switchboard.audio](https://console.switchboard.audio/register)
   (free) and create an app to get its `APP_ID` and `APP_SECRET`.
 - **OpenAI** — a Realtime-capable key from
-  [platform.openai.com](https://platform.openai.com/api-keys).
+  [platform.openai.com](https://platform.openai.com/api-keys). Omit `openAIApiKey` and the
+  session runs on a shared **test key** instead.
 
 > [!TIP]
-> The [example app](example) ships with working Switchboard demo credentials, so you can try
-> the library out without creating an account — you only need to add your own OpenAI key.
+> The [example app](example) ships with working Switchboard demo credentials and needs no
+> OpenAI key, so you can clone it and talk to the assistant with nothing to configure.
+
+> [!WARNING]
+> **The test key is for evaluation only.** It's shared, rate-limited, and **rotated without
+> notice** — an app relying on it stops working the moment it turns over, and you get no
+> quota, billing, or usage control over it. Pass your own `openAIApiKey` for anything you
+> ship. The toolkit `console.warn`s at init when no key is set.
 
 > [!NOTE]
 > Your Switchboard `APP_ID` and `APP_SECRET` are **safe to bundle in your application**. They
@@ -282,9 +289,10 @@ function Screen() {
 ```
 
 That's the whole app — `start()` handles mic permission and connects, and the model can
-call the `get_time` tool (try asking it the time). Render `error.message`, as above: a
-rejected API key or a denied mic shows up there
-([details](#the-useopenairealtimetoolkit-hook)).
+call the `get_time` tool (try asking it the time). Drop the `openAIApiKey` line and it
+still runs, on the shared test key ([above](#credentials)) — put your own key back before
+you ship. Render `error.message`, as above: a rejected API key or a denied mic shows up
+there ([details](#the-useopenairealtimetoolkit-hook)).
 Layout is yours — the snippet's `View` keeps it minimal. Turn-detection tuning and styling
 are opt-in; see below and [`example/App.tsx`](example/App.tsx) for the fuller version.
 
@@ -446,7 +454,7 @@ The public surface is the provider, the `useOpenAIRealtimeToolkit()` hook, and `
 
 | Import | What it is |
 | --- | --- |
-| `OpenAIRealtimeToolkitProvider` | Provider and entry point. Props: `{ appId, appSecret, openAIApiKey, instructions?, voice?, speed?, model?, localTurnHandling?: { enabled?, config? } }`. |
+| `OpenAIRealtimeToolkitProvider` | Provider and entry point. Props: `{ appId, appSecret, openAIApiKey?, instructions?, voice?, speed?, model?, localTurnHandling?: { enabled?, config? } }`. Omitting `openAIApiKey` falls back to the shared test key — see [Credentials](#credentials). |
 | `useOpenAIRealtimeToolkit()` | The main hook — everything you drive the assistant with ([below](#the-useopenairealtimetoolkit-hook)). |
 | `useTool(tool)` | Register a tool for the model to call, scoped to the component. See [Tool calling](#tool-calling). |
 | `OpenAIRealtimeToolkitTool` | Tool shape: `{ name, description, parameters?, handler }`. `parameters` (JSON Schema) is optional — omit for a no-arg tool. |
@@ -532,7 +540,7 @@ conversation still works. Failures that aren't the session's own (a denied mic, 
 engine start) leave it `'none'` and report through `error` alone — so render `error`
 first, then fall back to `connectionStatus` for the connection chrome.
 
-Blank credentials are the one exception to all of this: that's a caller mistake, not a
+Blank Switchboard credentials are the one exception to all of this: that's a caller mistake, not a
 runtime failure, so the provider throws on mount.
 
 ## Running the example
@@ -542,8 +550,10 @@ demonstrates an OpenAI Realtime voice assistant with on-device turn detection,
 noise presets, and a tool call.
 
 > [!TIP]
-> The example ships with built-in Switchboard demo credentials, so you can run it
-> without creating a Switchboard account — you only need to add your own OpenAI API key.
+> The example ships with built-in Switchboard demo credentials and runs on the shared
+> OpenAI test key, so there's nothing to configure — no Switchboard account and no OpenAI
+> key needed. See [Credentials](#credentials) for why that key isn't for production, and
+> [`example/README.md`](example/README.md#1-credentials) for wiring in your own.
 
 **Install the repo root first.** The example consumes the library via `file:..`, and the
 package's `main`/`types` resolve to the built `dist/`, which the root's `npm install`
