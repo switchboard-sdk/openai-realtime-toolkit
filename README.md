@@ -545,5 +545,20 @@ noise presets, and a tool call.
 > The example ships with built-in Switchboard demo credentials, so you can run it
 > without creating a Switchboard account — you only need to add your own OpenAI API key.
 
+**Install the repo root first.** The example consumes the library via `file:..`, and the
+package's `main`/`types` resolve to the built `dist/`, which the root's `npm install`
+produces via `prepare`:
+
+```sh
+npm run example:install    # from the repo root: installs + builds here, then installs example/
+```
+
+Or by hand:
+
+```sh
+npm install                # repo root — installs deps and builds dist/
+cd example && npm install
+```
+
 See **[example/README.md](example/README.md)** for setup and run instructions
 (credentials, install, iOS device signing, Android).

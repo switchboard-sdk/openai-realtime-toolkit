@@ -25,13 +25,27 @@ cp .env.example .env
 
 ## 2. Install
 
+**Install the repo root first**, then this app:
+
 ```sh
+cd ..            # the repo root
+npm install      # installs deps and builds the library (dist/) via `prepare`
+
+cd example
 npm install
 ```
 
+The example consumes the library from the repo root via `file:..`, and the package's
+`main`/`types` point at the built `dist/` — which only exists once the root's
+`npm install` has run its build. Skip it and TypeScript can't resolve the library at
+all (`Cannot find module '@synervoz/openai-realtime-toolkit' or its corresponding type
+declarations`), even though Metro would still bundle the app from `src/`. From the repo
+root, `npm run example:install` does both in the right order.
+
 This symlinks the OpenAIRealtimeToolkit library from the repo root (`file:..`). Do **not**
-run `npm install @synervoz/openai-realtime-toolkit` — that would try to fetch
-the (unpublished) package from npm. The plain `npm install` uses the local copy.
+run `npm install @synervoz/openai-realtime-toolkit` inside `example/` — that fetches the
+published package instead of the local copy you're trying to test. The plain `npm install`
+uses the symlink.
 
 ### How Metro finds the local library ([metro.config.js](metro.config.js))
 
@@ -74,6 +88,26 @@ npm run ios
 (recommended for real microphone/audio testing), set up code signing first — see
 React Native's [Running On Device](https://reactnative.dev/docs/running-on-device)
 guide for background.
+
+> [!NOTE]
+> **`xcodebuild exited with error code '70'` after the app has already launched.**
+> If the app is installed and running, the build succeeded — exit 70 comes from the
+> RN CLI's *post-build* step (picking, booting, or launching on a target), not from
+> compilation, and the CLI reports it as a build failure anyway. Name the target
+> explicitly so that step can't miss:
+>
+> ```sh
+> npm run ios -- --simulator "iPhone 17"     # an installed simulator name
+> npm run ios -- --device "<Your iPhone>"    # a connected device
+> ```
+>
+> `xcrun simctl list devices available` lists the simulator names you have. If the
+> app *didn't* launch, this isn't the same thing — the CLI hides the real message,
+> so open the workspace and build there to see it:
+>
+> ```sh
+> open ios/OpenAIRealtimeToolkitExample.xcworkspace
+> ```
 
 #### Set up iOS code signing for your device
 
