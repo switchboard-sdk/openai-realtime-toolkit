@@ -1,7 +1,7 @@
-# OpenAI-Realtime-Toolkit
+# openai-realtime-toolkit
 
 On-device audio AI for React Native, powered by the [Switchboard SDK](https://switchboard.audio).
-OpenAIRealtimeToolkit makes OpenAI Realtime voice models easy to use along with tool calling and customizable local turn-detection and barge-in handling.
+openai-realtime-toolkit makes OpenAI Realtime voice models easy to use along with tool calling and customizable local turn-detection and barge-in handling.
 
 ## Platforms
 
@@ -26,7 +26,7 @@ npm install @synervoz/openai-realtime-toolkit
 | Android NDK      | 29 — see [Android](#android) |
 | Node.js          | 22+                         |
 
-OpenAIRealtimeToolkit is a bare React Native **C++ TurboModule** and requires the **[New Architecture](https://reactnative.dev/architecture/landing-page)**. It works in both Expo (prebuild) and bare React Native apps.
+openai-realtime-toolkit is a bare React Native **C++ TurboModule** and requires the **[New Architecture](https://reactnative.dev/architecture/landing-page)**. It works in both Expo (prebuild) and bare React Native apps.
 
 ### iOS
 
@@ -46,7 +46,7 @@ app crashes when the mic is requested):
 
 ### Android
 
-OpenAIRealtimeToolkit's C++ TurboModule is compiled in your app's native build, so your
+openai-realtime-toolkit's C++ TurboModule is compiled in your app's native build, so your
 app needs to (a) know the Switchboard Maven repo, (b) enable Prefab, and (c) build with
 **NDK 29**. All three are required.
 
@@ -144,7 +144,7 @@ npx react-native run-android
 
 ### Expo
 
-OpenAIRealtimeToolkit works in an Expo app, but because it ships native code (a C++
+openai-realtime-toolkit works in an Expo app, but because it ships native code (a C++
 TurboModule + the Switchboard frameworks) it can **not** run in Expo Go — you
 need a [development build](https://docs.expo.dev/develop/development-builds/introduction/).
 
@@ -198,7 +198,7 @@ launch (see [Android](#android)).
 
 ## Privacy (App Store)
 
-OpenAIRealtimeToolkit bundles its own iOS [privacy manifest](https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api),
+openai-realtime-toolkit bundles its own iOS [privacy manifest](https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api),
 so the one Apple-flagged API it uses (`FileTimestamp`, from loading model files) is
 already declared for you — nothing to do.
 
@@ -207,7 +207,7 @@ At the **app** level you still handle:
 - **`NSMicrophoneUsageDescription`** in `Info.plist` (see [iOS install](#ios)) — the mic
   prompt string. (The microphone isn't a privacy-manifest API; this string is all it needs.)
 - **App Store privacy labels** — audio is streamed to the **OpenAI Realtime API**, so
-  disclose that (e.g. "Audio Data"). OpenAIRealtimeToolkit itself stores nothing.
+  disclose that (e.g. "Audio Data"). openai-realtime-toolkit itself stores nothing.
 
 ## Credentials
 
