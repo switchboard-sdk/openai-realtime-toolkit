@@ -1,7 +1,11 @@
 jest.mock('./NativeOpenAIRealtimeToolkit')
 
 import { PermissionsAndroid, Platform } from 'react-native'
-import { createOpenAIRealtimeToolkit, type OpenAIRealtimeToolkit } from './OpenAIRealtimeToolkit'
+import {
+  createOpenAIRealtimeToolkit,
+  OpenAIRealtimeError,
+  type OpenAIRealtimeToolkit,
+} from './OpenAIRealtimeToolkit'
 import NativeOpenAIRealtimeToolkit from './NativeOpenAIRealtimeToolkit'
 import { makeRpcResponse } from './test-helpers'
 
@@ -108,15 +112,13 @@ describe('initialize', () => {
     expect(native.processCommand.mock.calls.length).toBe(callsAfterFirst)
   })
 
-  // Credential guards: a blank key must throw here (with a field-named error)
-  // rather than reaching the SDK, which rejects appID/appSecret asynchronously
-  // and only logs a bad OpenAI key — both silent from the caller's view.
+  // Credential guards: a blank Switchboard credential must throw here (with a
+  // field-named error) rather than reaching the SDK, which rejects appID/appSecret
+  // asynchronously — silent from the caller's view.
   it.each([
     ['appId', { ...CREDS, appId: '' }],
     ['appId', { ...CREDS, appId: '   ' }],
     ['appSecret', { ...CREDS, appSecret: '' }],
-    ['openAIApiKey', { ...CREDS, openAIApiKey: '' }],
-    ['openAIApiKey', { ...CREDS, openAIApiKey: undefined as unknown as string }],
   ])('throws "%s is required" for a missing/blank %s', (field, creds) => {
     const ea = createOpenAIRealtimeToolkit()
     expect(() => ea.initialize(creds)).toThrow(`${field} is required`)
@@ -124,7 +126,25 @@ describe('initialize', () => {
     expect(commandFor('initialize')).toBeUndefined()
   })
 
-  it('surfaces an SDK error from switchboard.initialize instead of swallowing it', () => {
+  // The OpenAI key is optional — omitted, the node stays on the SDK's test key.
+  it.each([
+    ['omitted', { ...CREDS, openAIApiKey: undefined }],
+    ['blank', { ...CREDS, openAIApiKey: '   ' }],
+  ])('initializes without an apiKey and warns when the key is %s', (_case, creds) => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const ea = createOpenAIRealtimeToolkit()
+    expect(() => ea.initialize(creds)).not.toThrow()
+    expect(commandFor('initialize')?.params?.params?.extensions).toEqual({
+      Silero: {},
+      Onnx: {},
+      SmartTurn: {},
+      OpenAI: {},
+    })
+    expect(warnSpy.mock.calls[0][0]).toMatch(/No openAIApiKey provided/)
+    warnSpy.mockRestore()
+  })
+
+  it('records an SDK error in initError instead of throwing', async () => {
     scriptNative((req) => {
       if (req.method === 'callAction' && req.params?.actionName === 'initialize') {
         return makeRpcResponse(undefined, { code: -1, message: 'Missing appID in configuration.' })
@@ -132,7 +152,27 @@ describe('initialize', () => {
       return makeRpcResponse(null)
     })
     const ea = createOpenAIRealtimeToolkit()
-    expect(() => ea.initialize(CREDS)).toThrow(/Switchboard initialization failed: Missing appID/)
+    // No throw: the provider calls this from an effect, where it would red-box.
+    expect(() => ea.initialize(CREDS)).not.toThrow()
+    expect(ea.initError).toMatch(/Switchboard initialization failed: Missing appID/)
+    // And the reason carries into start(), rather than "call initialize() first".
+    await expect(ea.start()).rejects.toThrow(/Missing appID/)
+  })
+
+  it('announces an SDK refusal on the error channel as well as initError', () => {
+    scriptNative((req) => {
+      if (req.method === 'callAction' && req.params?.actionName === 'initialize') {
+        return makeRpcResponse(undefined, { code: -1, message: 'Missing appID in configuration.' })
+      }
+      return makeRpcResponse(null)
+    })
+    const ea = createOpenAIRealtimeToolkit()
+    const errors: OpenAIRealtimeError[] = []
+    ea.addErrorListener((e) => errors.push(e))
+    ea.initialize(CREDS)
+    expect(errors.map((e) => e.code)).toEqual(['INIT_FAILED'])
+    expect(errors[0].fatal).toBe(true)
+    expect(errors[0].message).toMatch(/Missing appID/)
   })
 
   it('leaves the engine uninitialized after an SDK error so a retry re-sends', () => {
@@ -144,14 +184,22 @@ describe('initialize', () => {
       return makeRpcResponse(null)
     })
     const ea = createOpenAIRealtimeToolkit()
-    expect(() => ea.initialize(CREDS)).toThrow(/Switchboard initialization failed/)
+    ea.initialize(CREDS)
+    expect(ea.initError).toMatch(/Switchboard initialization failed/)
     fail = false
     // initialized stayed false → the second call actually re-sends and succeeds.
-    expect(() => ea.initialize(CREDS)).not.toThrow()
+    ea.initialize(CREDS)
+    expect(ea.initError).toBeNull()
     const initCalls = sentCommands().filter(
       (c) => c.method === 'callAction' && c.params?.actionName === 'initialize'
     )
     expect(initCalls.length).toBe(2)
+  })
+
+  it('still throws for a caller mistake — a blank credential is not an SDK refusal', () => {
+    const ea = createOpenAIRealtimeToolkit()
+    expect(() => ea.initialize({ ...CREDS, appId: '  ' })).toThrow('appId is required')
+    expect(ea.initError).toBeNull()
   })
 
   it('re-adopts the live engine on reload instead of re-initializing or duplicating', async () => {
@@ -195,6 +243,19 @@ describe('start guards', () => {
     await expect(ea.start()).rejects.toThrow('Microphone permission denied')
     // Engine was never created because permission gate failed first.
     expect(commandFor('createEngine')).toBeUndefined()
+  })
+
+  it('rejects with a coded error, and reports it nowhere else', async () => {
+    native.requestMicrophonePermission.mockResolvedValue(false)
+    const ea = await initializedEngine()
+    const errors: OpenAIRealtimeError[] = []
+    ea.addErrorListener((e) => errors.push(e))
+    await expect(ea.start()).rejects.toMatchObject({
+      code: 'MIC_PERMISSION_DENIED',
+      fatal: true,
+    })
+    // One failure, one channel: this had a caller, so the rejection is the report.
+    expect(errors).toEqual([])
   })
 })
 
@@ -247,6 +308,22 @@ describe('start builds and starts the engine', () => {
     expect(startCmd).toBeDefined()
   })
 
+  it('throws and stays not-running when the engine refuses to start', async () => {
+    scriptNative((req) => {
+      if (req.method === 'callAction' && req.params?.actionName === 'createEngine') {
+        return makeRpcResponse('engine-1')
+      }
+      if (req.method === 'callAction' && req.params?.actionName === 'start') {
+        return makeRpcResponse(undefined, { code: -1, message: 'Audio session unavailable' })
+      }
+      return makeRpcResponse(null)
+    })
+    const ea = await initializedEngine()
+    await expect(ea.start()).rejects.toThrow(/Engine start failed: Audio session unavailable/)
+    // The critical half: no phantom "running" state over a dead graph.
+    expect(ea.isRunning).toBe(false)
+  })
+
   it('throws with the error body when createEngine returns no id', async () => {
     scriptNative((req) => {
       if (req.method === 'callAction' && req.params?.actionName === 'createEngine') {
@@ -291,6 +368,84 @@ describe('setInstructions', () => {
     ea.setInstructions('live update')
     const writes = setValuesFor('openAIRealtimeNode', 'instructions')
     expect(writes[writes.length - 1].params.value).toBe('live update')
+  })
+})
+
+describe('voice / speed / model', () => {
+  /** The openAI node's configuration from the (most recent) createEngine call. */
+  function openAIConfig(): any {
+    const creates = sentCommands().filter((c) => c.params?.actionName === 'createEngine')
+    return creates[creates.length - 1].params.params.configuration.graph.nodes.find(
+      (n: any) => n.id === 'openAIRealtimeNode'
+    ).configuration
+  }
+
+  it('bakes the node defaults into the graph when nothing is seeded', async () => {
+    const ea = await initializedEngine()
+    await ea.start()
+    expect(openAIConfig().voice).toBe('cedar')
+    expect(openAIConfig().speed).toBe(1.0)
+    expect(openAIConfig().model).toBe('gpt-realtime-2')
+  })
+
+  it('carries the seeded voice / speed / model into the graph', async () => {
+    const ea = createOpenAIRealtimeToolkit()
+    ea.initialize({ ...CREDS, voice: 'marin', speed: 1.25, model: 'gpt-realtime' })
+    await ea.start()
+    expect(openAIConfig().voice).toBe('marin')
+    expect(openAIConfig().speed).toBe(1.25)
+    expect(openAIConfig().model).toBe('gpt-realtime')
+  })
+
+  it('clamps a seeded speed to the range the node accepts', async () => {
+    const ea = createOpenAIRealtimeToolkit()
+    ea.initialize({ ...CREDS, speed: 9 })
+    await ea.start()
+    expect(openAIConfig().speed).toBe(1.5)
+  })
+
+  it('setVoice applies live via setValue while running', async () => {
+    const ea = await initializedEngine()
+    await ea.start()
+    ea.setVoice('sage')
+    const writes = setValuesFor('openAIRealtimeNode', 'voice')
+    expect(writes[writes.length - 1].params.value).toBe('sage')
+  })
+
+  it('setVoice is stored (not sent) when not running, then baked into the next start', async () => {
+    const ea = await initializedEngine()
+    ea.setVoice('echo')
+    expect(setValuesFor('openAIRealtimeNode', 'voice').length).toBe(0)
+    await ea.start()
+    expect(openAIConfig().voice).toBe('echo')
+  })
+
+  it('never writes model live — it is only ever baked into the graph', async () => {
+    // The node reads `model` from its configuration and doesn't expose it as a
+    // property, so changing it would mean rebuilding the engine. Deliberately
+    // not offered: the model is chosen once, at provider mount.
+    const ea = createOpenAIRealtimeToolkit()
+    ea.initialize({ ...CREDS, model: 'gpt-realtime' })
+    await ea.start()
+    expect(setValuesFor('openAIRealtimeNode', 'model')).toHaveLength(0)
+    expect(openAIConfig().model).toBe('gpt-realtime')
+  })
+
+  it('setSpeed clamps and applies live via setValue while running', async () => {
+    const ea = await initializedEngine()
+    await ea.start()
+    ea.setSpeed(0.1)
+    const writes = setValuesFor('openAIRealtimeNode', 'speed')
+    expect(writes[writes.length - 1].params.value).toBe(0.5)
+  })
+
+  it('setVoice / setSpeed are no-ops when the value is unchanged', async () => {
+    const ea = await initializedEngine()
+    await ea.start()
+    const before = native.processCommand.mock.calls.length
+    ea.setVoice('cedar') // the default
+    ea.setSpeed(1.0) // the default
+    expect(native.processCommand.mock.calls.length).toBe(before)
   })
 })
 
@@ -473,6 +628,56 @@ describe('registerTool', () => {
   })
 })
 
+describe('session failures are classified by whether a session is up', () => {
+  function engineWithErrors() {
+    const ea = createOpenAIRealtimeToolkit()
+    const errors: OpenAIRealtimeError[] = []
+    ea.addErrorListener((e) => errors.push(e))
+    ea.initialize(CREDS)
+    return { ea, errors }
+  }
+
+  it('is fatal when no session has come up — this is what is keeping it down', () => {
+    const { errors } = engineWithErrors()
+    emitEvent('x.openAIRealtimeNode', 'sessionStarting')
+    emitEvent('x.openAIRealtimeNode', 'error', { message: 'Incorrect API key provided: sk-…' })
+    expect(errors).toHaveLength(1)
+    expect(errors[0].code).toBe('SESSION_FAILED')
+    expect(errors[0].fatal).toBe(true)
+    expect(errors[0].message).toBe('Incorrect API key provided: sk-…')
+  })
+
+  it('is non-fatal during a live session — the conversation survived it', () => {
+    const { errors } = engineWithErrors()
+    emitEvent('x.openAIRealtimeNode', 'sessionCreated')
+    emitEvent('x.openAIRealtimeNode', 'error', { message: 'tools is not valid JSON.' })
+    expect(errors[0].fatal).toBe(false)
+  })
+
+  it('goes back to fatal once the session drops', () => {
+    const { errors } = engineWithErrors()
+    emitEvent('x.openAIRealtimeNode', 'sessionCreated')
+    emitEvent('x.openAIRealtimeNode', 'sessionDisconnected')
+    emitEvent('x.openAIRealtimeNode', 'error', { message: 'quota exceeded' })
+    expect(errors[0].fatal).toBe(true)
+  })
+
+  it('falls back to the raw payload when the failure carries no message', () => {
+    const { errors } = engineWithErrors()
+    emitEvent('x.openAIRealtimeNode', 'error', {})
+    expect(errors[0].message).toMatch(/^Session error: /)
+  })
+
+  it('still fans the failure out on the openai event channel', () => {
+    const { ea, errors } = engineWithErrors()
+    const openai: any[] = []
+    ea.addEventListener('openai', (e) => openai.push(e))
+    emitEvent('x.openAIRealtimeNode', 'error', { message: 'boom' })
+    expect(openai.map((e) => e.name)).toEqual(['error'])
+    expect(errors).toHaveLength(1)
+  })
+})
+
 describe('event dispatch and classification', () => {
   it('classifies a dotted node URI by its last segment', () => {
     const ea = createOpenAIRealtimeToolkit()
@@ -605,6 +810,84 @@ describe('tool-call handling', () => {
     expect(commandFor('submitToolResult')).toBeUndefined()
     expect(commandFor('createResponse')).toBeDefined()
   })
+
+  it('reports an undeliverable tool result — the model never got it', async () => {
+    scriptNative((req) => {
+      if (req.method === 'callAction' && req.params?.actionName === 'submitToolResult') {
+        // What the node returns for a stale callId or a dead session.
+        return makeRpcResponse(undefined, { code: -1, message: 'Failed to submit tool result.' })
+      }
+      return makeRpcResponse(null)
+    })
+    const ea = createOpenAIRealtimeToolkit()
+    const errors: OpenAIRealtimeError[] = []
+    ea.addErrorListener((e) => errors.push(e))
+    ea.initialize(CREDS)
+    ea.registerTool({ name: 'echo', description: 'd', parameters: {}, handler: () => 'ok' })
+    emitToolCall('echo', '{}')
+    await flushMicrotasks()
+    expect(errors).toHaveLength(1)
+    expect(errors[0].code).toBe('TOOL_RESULT_UNDELIVERED')
+    expect(errors[0].message).toContain('Failed to submit tool result.')
+    // Non-fatal: the session is what it is, and the conversation carries on.
+    expect(errors[0].fatal).toBe(false)
+    expect(errors[0].details).toMatchObject({ tool: 'echo' })
+    // No submitToolError fallback — it needs the same session and callId.
+    expect(commandFor('submitToolError')).toBeUndefined()
+    // The model is still resumed rather than left waiting.
+    expect(commandFor('createResponse')).toBeDefined()
+  })
+
+  it('reports a handler that throws, and still tells the model', async () => {
+    const ea = createOpenAIRealtimeToolkit()
+    const errors: OpenAIRealtimeError[] = []
+    ea.addErrorListener((e) => errors.push(e))
+    ea.initialize(CREDS)
+    ea.registerTool({
+      name: 'boom',
+      description: 'd',
+      parameters: {},
+      handler: () => {
+        throw new Error('kaboom')
+      },
+    })
+    emitToolCall('boom', '{}')
+    await flushMicrotasks()
+    expect(errors.map((e) => e.code)).toEqual(['TOOL_HANDLER_FAILED'])
+    expect(errors[0].message).toContain('kaboom')
+    // The model is told and answers without the result, so this is telemetry only.
+    expect(errors[0].fatal).toBe(false)
+    expect(commandFor('submitToolError')).toBeDefined()
+  })
+
+  it('reports a refused resume', async () => {
+    scriptNative((req) => {
+      if (req.method === 'callAction' && req.params?.actionName === 'createResponse') {
+        return makeRpcResponse(undefined, { code: -1, message: 'Failed to create response.' })
+      }
+      return makeRpcResponse(null)
+    })
+    const ea = createOpenAIRealtimeToolkit()
+    const errors: OpenAIRealtimeError[] = []
+    ea.addErrorListener((e) => errors.push(e))
+    ea.initialize(CREDS)
+    ea.registerTool({ name: 'echo', description: 'd', parameters: {}, handler: () => 'ok' })
+    emitToolCall('echo', '{}')
+    await flushMicrotasks()
+    expect(errors.map((e) => e.code)).toEqual(['RESPONSE_FAILED'])
+    expect(errors[0].message).toContain('Failed to create response.')
+  })
+
+  it('reports nothing when everything succeeds', async () => {
+    const ea = createOpenAIRealtimeToolkit()
+    const errors: OpenAIRealtimeError[] = []
+    ea.addErrorListener((e) => errors.push(e))
+    ea.initialize(CREDS)
+    ea.registerTool({ name: 'echo', description: 'd', parameters: {}, handler: () => 'ok' })
+    emitToolCall('echo', '{}')
+    await flushMicrotasks()
+    expect(errors).toEqual([])
+  })
 })
 
 describe('vad edges drive the turn controller', () => {
@@ -683,6 +966,44 @@ describe('stop', () => {
       (c) => c.method === 'callAction' && c.params.actionName === 'stop' && c.params.objectURI === 'engine-1'
     )
     expect(stopCmd).toBeDefined()
+    expect(ea.isRunning).toBe(false)
+  })
+
+  it('throws and stays running when the engine refuses to stop', async () => {
+    scriptNative((req) => {
+      if (req.method === 'callAction' && req.params?.actionName === 'createEngine') {
+        return makeRpcResponse('engine-1')
+      }
+      if (req.method === 'callAction' && req.params?.actionName === 'stop') {
+        return makeRpcResponse(undefined, { code: -1, message: 'Engine busy' })
+      }
+      return makeRpcResponse(null)
+    })
+    const ea = await initializedEngine()
+    await ea.start()
+    expect(() => ea.stop()).toThrow(
+      expect.objectContaining({ code: 'ENGINE_STOP_FAILED', fatal: true })
+    )
+    // The mic is still live, so the state must say so.
+    expect(ea.isRunning).toBe(true)
+  })
+
+  it('releases even when the stop is refused, and clears running', async () => {
+    scriptNative((req) => {
+      if (req.method === 'callAction' && req.params?.actionName === 'createEngine') {
+        return makeRpcResponse('engine-1')
+      }
+      if (req.method === 'callAction' && req.params?.actionName === 'stop') {
+        return makeRpcResponse(undefined, { code: -1, message: 'Engine busy' })
+      }
+      return makeRpcResponse(null)
+    })
+    const ea = await initializedEngine()
+    await ea.start()
+    // release() is the escape hatch — a refused stop must not block destroyEngine.
+    expect(() => ea.release()).not.toThrow()
+    expect(commandFor('destroyEngine')).toBeDefined()
+    expect(ea.isRunning).toBe(false)
   })
 })
 

@@ -5,6 +5,69 @@ import { SwitchboardClient } from './SwitchboardClient'
 import { createLocalTurnController, type LocalTurnController } from './LocalTurnController'
 import { resolveBargeIn, resolveTurnDetection } from './turnDetection'
 import { PRESETS, type Preset, type TurnPreset } from './presets'
+import { clampSpeed, DEFAULT_MODEL, DEFAULT_VOICE, SPEED_RANGE, type OpenAIVoice } from './voice'
+
+/**
+ * Machine-readable cause of an {@link OpenAIRealtimeError}. Branch on this rather
+ * than on the message, which is meant for humans and may change.
+ */
+export type OpenAIRealtimeErrorCode =
+  /** The Switchboard SDK refused to initialize (rejected credentials, extension load failure). */
+  | 'INIT_FAILED'
+  /** An action needed the SDK, which never came up. */
+  | 'NOT_INITIALIZED'
+  /** The user denied microphone access. */
+  | 'MIC_PERMISSION_DENIED'
+  /** The audio graph couldn't be built. */
+  | 'ENGINE_CREATION_FAILED'
+  /** The engine refused to start (audio session unavailable, mic held by another app). */
+  | 'ENGINE_START_FAILED'
+  /** The engine refused to stop — it's still running, and the mic is still hot. */
+  | 'ENGINE_STOP_FAILED'
+  /** OpenAI reported a session-level failure (rejected key, quota, unknown model, bad tool schema). */
+  | 'SESSION_FAILED'
+  /** A tool handler threw. Already reported to the model, which carries on without the result. */
+  | 'TOOL_HANDLER_FAILED'
+  /** A tool's result never reached OpenAI — no live session, or a stale call id. */
+  | 'TOOL_RESULT_UNDELIVERED'
+  /** The model couldn't be resumed after a tool call, so it may sit silent. */
+  | 'RESPONSE_FAILED'
+
+/**
+ * A failure with a machine-readable {@link OpenAIRealtimeError.code}.
+ *
+ * One type on both channels: actions with a caller (`start`, `stop`) reject with
+ * it, and failures with no caller (the session, tool calls) are delivered to
+ * {@link OpenAIRealtimeToolkit.addErrorListener}. Never both for the same failure.
+ */
+export class OpenAIRealtimeError extends Error {
+  /** What failed. */
+  readonly code: OpenAIRealtimeErrorCode
+  /**
+   * Whether this leaves something the app has to act on. `false` means the session
+   * absorbed it and carries on — worth logging, but there's nothing to render and
+   * nothing to clear, so it never lands in the provider's `error` state.
+   */
+  readonly fatal: boolean
+  /** Whatever the underlying layer reported, when there was more than a message. */
+  readonly details?: Record<string, unknown>
+
+  constructor(
+    code: OpenAIRealtimeErrorCode,
+    message: string,
+    fatal: boolean,
+    details?: Record<string, unknown>
+  ) {
+    super(message)
+    this.name = 'OpenAIRealtimeError'
+    this.code = code
+    this.fatal = fatal
+    this.details = details
+  }
+}
+
+/** Handler for {@link OpenAIRealtimeToolkit.addErrorListener}. */
+export type OpenAIRealtimeErrorListener = (error: OpenAIRealtimeError) => void
 
 /** Credentials for {@link OpenAIRealtimeToolkit.initialize}. */
 export interface OpenAIRealtimeToolkitInitializeOptions {
@@ -12,13 +75,32 @@ export interface OpenAIRealtimeToolkitInitializeOptions {
   appId: string
   /** Switchboard app secret. */
   appSecret: string
-  /** OpenAI API key, used by the OpenAI Realtime node. */
-  openAIApiKey: string
+  /**
+   * Your OpenAI API key, used by the OpenAI Realtime node. Optional while you're
+   * trying the toolkit out; required for an app you ship.
+   */
+  openAIApiKey?: string
   /**
    * System prompt for the OpenAI Realtime model. Update it later with
    * {@link OpenAIRealtimeToolkit.setInstructions}.
    */
   instructions?: string
+  /**
+   * Voice the model speaks with. Defaults to `'cedar'`. Change it later with
+   * {@link OpenAIRealtimeToolkit.setVoice}.
+   */
+  voice?: OpenAIVoice
+  /**
+   * Speech speed multiplier, 0.5–1.5 (out-of-range values are clamped).
+   * Defaults to 1.0. Change it later with {@link OpenAIRealtimeToolkit.setSpeed}.
+   */
+  speed?: number
+  /**
+   * OpenAI Realtime model id, e.g. `'gpt-realtime-2'` (the default). Baked into
+   * the graph when the engine is built, so it's fixed for the engine's lifetime
+   * — there's no live setter.
+   */
+  model?: string
   /**
    * Detect turns on-device with SileroVAD (barge-in) + SmartTurn (turn-end)
    * instead of OpenAI's `server_vad`. Defaults to false. Applied at
@@ -114,7 +196,8 @@ const ANDROID_VOICE_COMMUNICATION_INPUT_PRESET = 7 // oboe InputPreset.VoiceComm
 function buildVoiceAssistantEngine(
   instructions: string,
   tools: object[],
-  localTurnHandling: boolean
+  localTurnHandling: boolean,
+  session: { voice: OpenAIVoice; speed: number; model: string }
 ) {
   return {
     type: 'Switchboard.Realtime',
@@ -130,7 +213,9 @@ function buildVoiceAssistantEngine(
             id: 'openAIRealtimeNode',
             type: 'OpenAI.Realtime',
             configuration: {
-              voice: 'cedar',
+              model: session.model,
+              voice: session.voice,
+              speed: session.speed,
               turnDetection: localTurnHandling ? 'none' : 'server_vad',
               instructions,
               tools,
@@ -182,8 +267,14 @@ export function createOpenAIRealtimeToolkit() {
   // engineId = engine exists (kept across stop for reuse); running = started.
   let running = false
   let initialized = false
+  // Why the SDK refused to initialize (rejected credentials, extension load
+  // failure), or null. Recorded instead of thrown — see initialize().
+  let initError: string | null = null
   let nativeSubscribed = false
   let instructions = ''
+  let voice: OpenAIVoice = DEFAULT_VOICE
+  let speed: number = SPEED_RANGE.default
+  let model = DEFAULT_MODEL
   let localTurnHandling = false
   let preset: Preset = 'balanced'
   let customKnobs: TurnPreset = {}
@@ -195,29 +286,59 @@ export function createOpenAIRealtimeToolkit() {
     smartTurn: new Set(),
     openai: new Set(),
   }
+  const errorListeners = new Set<OpenAIRealtimeErrorListener>()
+  // Whether an OpenAI session is currently up. Only used to decide whether a
+  // session failure is fatal: one that arrives with no session is what's keeping
+  // the session down; one that arrives during a live session was survivable.
+  let sessionLive = false
+
+  /** Deliver a no-caller failure to {@link addErrorListener}. */
+  function emitError(
+    code: OpenAIRealtimeErrorCode,
+    message: string,
+    fatal: boolean,
+    details?: Record<string, unknown>
+  ): void {
+    const error = new OpenAIRealtimeError(code, message, fatal, details)
+    errorListeners.forEach((l) => l(error))
+  }
 
   /**
    * Load the Switchboard SDK and its extensions (SileroVAD + Onnx + OpenAI)
    * with your credentials. Idempotent.
+   *
+   * Throws only for a caller mistake (a blank credential). An SDK-level refusal
+   * is recorded in {@link OpenAIRealtimeToolkit.initError} and leaves this
+   * uninitialized, so a later `start()` rejects with the reason: the provider
+   * calls this from an effect, where a throw would red-box the app instead of
+   * reaching its `error` state.
    */
   function initialize(options: OpenAIRealtimeToolkitInitializeOptions): void {
     if (initialized) {
       return
     }
-    // Fail loudly on missing/blank credentials. The SDK rejects a missing
-    // appID/appSecret asynchronously (via license validation) and only *logs* a
-    // bad OpenAI key, so without these guards a config typo fails silently.
+    initError = null
+    // Fail loudly on missing/blank Switchboard credentials — the SDK rejects them
+    // asynchronously (via license validation), so without these guards a config
+    // typo fails silently.
     if (!options.appId || options.appId.trim() === '') {
       throw new Error('appId is required')
     }
     if (!options.appSecret || options.appSecret.trim() === '') {
       throw new Error('appSecret is required')
     }
-    if (!options.openAIApiKey || options.openAIApiKey.trim() === '') {
-      throw new Error('openAIApiKey is required')
+    const openAIApiKey = options.openAIApiKey?.trim() ?? ''
+    if (openAIApiKey === '') {
+      console.warn(
+        '[OpenAIRealtimeToolkit] No openAIApiKey provided — running against the shared test key, ' +
+          'which is rate-limited and rotated without notice. Provide your own key before shipping.'
+      )
     }
 
     instructions = options.instructions ?? ''
+    voice = options.voice ?? DEFAULT_VOICE
+    speed = clampSpeed(options.speed ?? SPEED_RANGE.default)
+    model = options.model ?? DEFAULT_MODEL
     localTurnHandling = options.localTurnHandling ?? false
     preset = options.preset ?? 'balanced'
     customKnobs = options.customKnobs ?? {}
@@ -231,11 +352,14 @@ export function createOpenAIRealtimeToolkit() {
           Silero: {},
           Onnx: {},
           SmartTurn: {},
-          OpenAI: { apiKey: options.openAIApiKey },
+          // Omitting apiKey leaves the node on the test key that ships with the SDK.
+          OpenAI: openAIApiKey === '' ? {} : { apiKey: openAIApiKey },
         },
       })
       if (res.error) {
-        throw new Error(`Switchboard initialization failed: ${res.error.message}`)
+        initError = `Switchboard initialization failed: ${res.error.message}`
+        emitError('INIT_FAILED', initError, true)
+        return
       }
     }
     // Re-adopt an engine that survived the reload so start() reuses it.
@@ -262,6 +386,21 @@ export function createOpenAIRealtimeToolkit() {
   }
 
   /**
+   * Subscribe to failures that have no caller to reject: the SDK refusing to
+   * initialize, OpenAI session errors, and tool-call plumbing. Failures from
+   * {@link start} / {@link stop} are *not* delivered here — those reject instead.
+   * @returns a subscription — call `remove()` to stop listening.
+   */
+  function addErrorListener(listener: OpenAIRealtimeErrorListener): OpenAIRealtimeToolkitSubscription {
+    errorListeners.add(listener)
+    return {
+      remove: () => {
+        errorListeners.delete(listener)
+      },
+    }
+  }
+
+  /**
    * Request microphone permission; resolves to whether it's granted. Android
    * uses `PermissionsAndroid` (RECORD_AUDIO); iOS shows the system prompt via
    * AVAudioApplication. Called automatically by {@link OpenAIRealtimeToolkit.start}.
@@ -276,11 +415,21 @@ export function createOpenAIRealtimeToolkit() {
 
   /**
    * Request the mic, build the voice-assistant graph, and start the engine.
-   * @throws if not initialized, the mic is denied, or the engine fails to start.
+   * @throws {OpenAIRealtimeError} if not initialized, the mic is denied, or the
+   * engine fails to start. Nothing is emitted to {@link addErrorListener} — this
+   * has a caller, so the rejection is the report.
    */
   async function start(): Promise<void> {
     if (!initialized || !client) {
-      throw new Error('OpenAIRealtimeToolkit.initialize() must be called before start()')
+      // An SDK refusal recorded by initialize() is the real reason — report that
+      // rather than "call initialize() first", which would be misleading.
+      throw initError
+        ? new OpenAIRealtimeError('INIT_FAILED', initError, true)
+        : new OpenAIRealtimeError(
+            'NOT_INITIALIZED',
+            'OpenAIRealtimeToolkit.initialize() must be called before start()',
+            true
+          )
     }
     if (running) {
       return // already running
@@ -290,7 +439,7 @@ export function createOpenAIRealtimeToolkit() {
     const c = client
 
     if (!(await requestMicrophonePermission())) {
-      throw new Error('Microphone permission denied')
+      throw new OpenAIRealtimeError('MIC_PERMISSION_DENIED', 'Microphone permission denied', true)
     }
 
     // Create the engine once; start/stop reuse it, release() frees it.
@@ -299,11 +448,15 @@ export function createOpenAIRealtimeToolkit() {
       const res = c.callAction(
         'switchboard',
         'createEngine',
-        buildVoiceAssistantEngine(instructions, toolDefs(), localTurnHandling)
+        buildVoiceAssistantEngine(instructions, toolDefs(), localTurnHandling, { voice, speed, model })
       )
       id = res.result as string
       if (!id) {
-        throw new Error(`createEngine failed: ${JSON.stringify(res.error ?? res)}`)
+        throw new OpenAIRealtimeError(
+          'ENGINE_CREATION_FAILED',
+          `createEngine failed: ${JSON.stringify(res.error ?? res)}`,
+          true
+        )
       }
       engineId = id
     }
@@ -318,7 +471,16 @@ export function createOpenAIRealtimeToolkit() {
       }
     }
 
-    c.callAction(id, 'start')
+    // Check the result: a refused start (audio session unavailable, mic held by
+    // another app) would otherwise leave `running` true with a dead graph.
+    const startRes = c.callAction(id, 'start')
+    if (startRes.error) {
+      throw new OpenAIRealtimeError(
+        'ENGINE_START_FAILED',
+        `Engine start failed: ${startRes.error.message}`,
+        true
+      )
+    }
     running = true
 
     applyPreset()
@@ -361,6 +523,36 @@ export function createOpenAIRealtimeToolkit() {
     instructions = next
     if (engineId) {
       client?.setValue('openAIRealtimeNode', 'instructions', next)
+    }
+  }
+
+  /**
+   * Set the voice the model speaks with. Applied live while running — OpenAI
+   * starts a new session for the new voice, dropping the conversation so far;
+   * otherwise the next {@link OpenAIRealtimeToolkit.start} picks it up.
+   */
+  function setVoice(next: OpenAIVoice): void {
+    if (next === voice) {
+      return
+    }
+    voice = next
+    if (engineId) {
+      client?.setValue('openAIRealtimeNode', 'voice', next)
+    }
+  }
+
+  /**
+   * Set the speech speed multiplier (0.5–1.5; out-of-range values are clamped).
+   * Applied live while running — the session keeps its context.
+   */
+  function setSpeed(next: number): void {
+    const clamped = clampSpeed(next)
+    if (clamped === speed) {
+      return
+    }
+    speed = clamped
+    if (engineId) {
+      client?.setValue('openAIRealtimeNode', 'speed', clamped)
     }
   }
 
@@ -444,7 +636,13 @@ export function createOpenAIRealtimeToolkit() {
     }))
   }
 
-  /** Run a tool call: execute the handler, submit the result, resume the model. */
+  /**
+   * Run a tool call: execute the handler, submit the result, resume the model.
+   *
+   * Every failure here is non-fatal and goes to {@link addErrorListener}: this runs
+   * from an event callback, so there's no caller to reject, and the conversation
+   * carries on either way. Nothing here touches the app's `error` state.
+   */
   async function handleToolCall(call: ToolCall): Promise<void> {
     const tool = tools.get(call.name)
     try {
@@ -453,44 +651,106 @@ export function createOpenAIRealtimeToolkit() {
       }
       const args = call.argumentsJson ? JSON.parse(call.argumentsJson) : {}
       const result = await tool.handler(args)
-      client?.callAction('openAIRealtimeNode', 'submitToolResult', {
+      // A refusal means the output never reached OpenAI (no live session, or a
+      // stale callId). Deliberately no submitToolError fallback: it needs the same
+      // session and callId, so whatever refused this refuses that too.
+      const res = client?.callAction('openAIRealtimeNode', 'submitToolResult', {
         callId: call.callId,
         outputJson: JSON.stringify(result ?? null),
       })
+      if (res?.error) {
+        emitError(
+          'TOOL_RESULT_UNDELIVERED',
+          `submitToolResult for '${call.name}' failed: ${res.error.message}`,
+          false,
+          { tool: call.name, callId: call.callId }
+        )
+      }
     } catch (err) {
-      client?.callAction('openAIRealtimeNode', 'submitToolError', {
+      // The handler threw (or there was no such tool). The model is told, and
+      // answers without the result — so this is telemetry, not an app failure.
+      emitError('TOOL_HANDLER_FAILED', `Tool '${call.name}' failed: ${String(err)}`, false, {
+        tool: call.name,
+        callId: call.callId,
+      })
+      const res = client?.callAction('openAIRealtimeNode', 'submitToolError', {
         callId: call.callId,
         errorJson: JSON.stringify({ error: String(err) }),
       })
+      if (res?.error) {
+        emitError(
+          'TOOL_RESULT_UNDELIVERED',
+          `submitToolError for '${call.name}' failed: ${res.error.message}`,
+          false,
+          { tool: call.name, callId: call.callId }
+        )
+      }
     }
-    // Resume so the model speaks using the tool output.
-    client?.callAction('openAIRealtimeNode', 'createResponse', {})
+    // Resume so the model speaks using the tool output. Still attempted after a
+    // failed submit — a model left waiting is worse than one answering without
+    // the tool output.
+    const resumed = client?.callAction('openAIRealtimeNode', 'createResponse', {})
+    if (resumed?.error) {
+      emitError('RESPONSE_FAILED', `createResponse failed: ${resumed.error.message}`, false, {
+        tool: call.name,
+      })
+    }
   }
 
-  /** Stop the engine, keeping it for a fast restart via {@link OpenAIRealtimeToolkit.start}. {@link OpenAIRealtimeToolkit.release} frees it. */
-  function stop(): void {
+  /**
+   * Halt the graph. Returns the SDK's message if it refused, else null — `running`
+   * only goes false when the graph actually stopped, so a refusal can't leave the
+   * app showing a stopped engine over a live microphone.
+   */
+  function haltGraph(): string | null {
     // Cancel pending timers so they don't fire against a stopped engine.
     localTurn?.reset()
     localTurn = null
     if (client && engineId && running) {
-      client.callAction(engineId, 'stop')
+      const res = client.callAction(engineId, 'stop')
+      if (res.error) {
+        return res.error.message ?? 'unknown error'
+      }
     }
     running = false
-    // Android: restore normal routing + mode.
+    // The graph is down, so no session survives it — a failure arriving after this
+    // is keeping the next session down, not surviving the current one.
+    sessionLive = false
+    // Android: restore normal routing + mode. Only once the graph is down — while
+    // it's still running the comm route is what keeps AEC engaged.
     if (Platform.OS === 'android') {
       NativeModules.OpenAIRealtimeToolkitAudioSession?.disableCommunicationRoute()?.catch(
         () => {}
       )
     }
+    return null
+  }
+
+  /**
+   * Stop the engine, keeping it for a fast restart via {@link OpenAIRealtimeToolkit.start}.
+   * {@link OpenAIRealtimeToolkit.release} frees it.
+   *
+   * @throws {OpenAIRealtimeError} if the engine refuses to stop — `isRunning`
+   * stays true, because it is.
+   */
+  function stop(): void {
+    const failure = haltGraph()
+    if (failure) {
+      throw new OpenAIRealtimeError('ENGINE_STOP_FAILED', `Engine stop failed: ${failure}`, true)
+    }
   }
 
   /** Stop and free the engine (audio session, models). The next {@link OpenAIRealtimeToolkit.start} rebuilds it. */
   function release(): void {
-    stop()
+    // A refused stop must not block the release path: destroying the engine frees
+    // the session either way, and release() is the app's way out of a bad state.
+    haltGraph()
     if (client && engineId) {
       // 'engineID' param per Switchboard.destroyEngine.
       client.callAction('switchboard', 'destroyEngine', { engineID: engineId })
       engineId = null
+      // The engine is gone, so nothing is running even if the stop above failed.
+      running = false
     }
   }
 
@@ -537,6 +797,23 @@ export function createOpenAIRealtimeToolkit() {
     if (type === 'openai' && event.name === 'toolCall') {
       handleToolCall(event.data as ToolCall)
     }
+    if (type === 'openai') {
+      if (event.name === 'sessionCreated') {
+        sessionLive = true
+      } else if (event.name === 'sessionStarting' || event.name === 'sessionDisconnected') {
+        sessionLive = false
+      } else if (event.name === 'error') {
+        // Fatal only when no session is up: then this is what's keeping it down.
+        // During a live session the conversation survived it, so it's telemetry.
+        const message = (event.data as { message?: string } | undefined)?.message
+        emitError(
+          'SESSION_FAILED',
+          message?.trim() ? message : `Session error: ${event.raw}`,
+          !sessionLive,
+          { raw }
+        )
+      }
+    }
     // On-device turn detection: SileroVAD speech edges drive barge-in + turn-end.
     if (type === 'vad') {
       if (event.name === 'speechStarted') {
@@ -551,9 +828,12 @@ export function createOpenAIRealtimeToolkit() {
   return {
     initialize,
     addEventListener,
+    addErrorListener,
     requestMicrophonePermission,
     start,
     setInstructions,
+    setVoice,
+    setSpeed,
     setLocalTurnHandling,
     setPreset,
     setCustomKnobs,
@@ -564,6 +844,13 @@ export function createOpenAIRealtimeToolkit() {
     /** Whether the engine is started (between {@link OpenAIRealtimeToolkit.start} and {@link OpenAIRealtimeToolkit.stop}). */
     get isRunning(): boolean {
       return running
+    },
+    /**
+     * Why the last {@link OpenAIRealtimeToolkit.initialize} was refused by the SDK,
+     * or null. Set instead of throwing so a caller in a React effect can surface it.
+     */
+    get initError(): string | null {
+      return initError
     },
   }
 }

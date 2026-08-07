@@ -7,13 +7,17 @@ Native 0.86, new architecture.
 
 ## 1. Credentials
 
-**Switchboard** — the app ships with working demo credentials
-(`SWITCHBOARD_APP_ID` / `SWITCHBOARD_APP_SECRET` in [`App.tsx`](App.tsx)), so
-there's nothing to configure to try it out. Swap in your own from
-[console.switchboard.audio](https://console.switchboard.audio) for your real app.
+**Nothing to configure to run the example.** It ships with demo Switchboard
+credentials (`SWITCHBOARD_APP_ID` / `SWITCHBOARD_APP_SECRET` in
+[`App.tsx`](App.tsx)), and those credentials have an OpenAI API key associated
+with them for testing — so the app passes no `openAIApiKey` of its own.
 
-**OpenAI** — provide your own key. The app reads it from `@env`
-(via `react-native-dotenv`), so it goes in a `.env` file, not in source:
+**For anything real, use your own keys.** The demo credentials are rate-limited
+and **rotated without notice**. Get Switchboard credentials from
+[console.switchboard.audio](https://console.switchboard.audio).
+
+To use **your own key**, copy the template and fill it in — the app reads it from
+`@env` (via `react-native-dotenv`), so it goes in a `.env` file, not in source:
 
 ```sh
 cp .env.example .env
@@ -21,17 +25,35 @@ cp .env.example .env
 # OPENAI_API_KEY=sk-...
 ```
 
+Then uncomment the two lines in [`App.tsx`](App.tsx) that wire it up:
+
+```tsx
+import { OPENAI_API_KEY } from '@env';
+// …
+<OpenAIRealtimeToolkitProvider openAIApiKey={OPENAI_API_KEY} … >
+```
+
 `.env` is gitignored; only the `.env.example` template is committed.
 
 ## 2. Install
 
+**Install the repo root first**, then this app:
+
 ```sh
+cd ..            # the repo root
+npm install      # installs deps and builds the library (dist/) via `prepare`
+
+cd example
 npm install
 ```
 
-This symlinks the OpenAIRealtimeToolkit library from the repo root (`file:..`). Do **not**
-run `npm install @synervoz/openai-realtime-toolkit` — that would try to fetch
-the (unpublished) package from npm. The plain `npm install` uses the local copy.
+Or from the repo root: `npm run example:install`, which does both in order.
+
+The example symlinks the library from the repo root (`file:..`), and its `types`
+point at the built `dist/` — so skipping the root install leaves TypeScript unable
+to resolve `@synervoz/openai-realtime-toolkit`. Don't run
+`npm install @synervoz/openai-realtime-toolkit` here either; that replaces the
+symlink with the published package.
 
 ### How Metro finds the local library ([metro.config.js](metro.config.js))
 
@@ -74,6 +96,26 @@ npm run ios
 (recommended for real microphone/audio testing), set up code signing first — see
 React Native's [Running On Device](https://reactnative.dev/docs/running-on-device)
 guide for background.
+
+> [!NOTE]
+> **`xcodebuild exited with error code '70'` after the app has already launched.**
+> If the app is installed and running, the build succeeded — exit 70 comes from the
+> RN CLI's *post-build* step (picking, booting, or launching on a target), not from
+> compilation, and the CLI reports it as a build failure anyway. Name the target
+> explicitly so that step can't miss:
+>
+> ```sh
+> npm run ios -- --simulator "iPhone 17"     # an installed simulator name
+> npm run ios -- --device "<Your iPhone>"    # a connected device
+> ```
+>
+> `xcrun simctl list devices available` lists the simulator names you have. If the
+> app *didn't* launch, this isn't the same thing — the CLI hides the real message,
+> so open the workspace and build there to see it:
+>
+> ```sh
+> open ios/OpenAIRealtimeToolkitExample.xcworkspace
+> ```
 
 #### Set up iOS code signing for your device
 

@@ -5,16 +5,33 @@ import { renderHook, act } from '@testing-library/react-native'
 // is (a) credential validation, (b) wiring the OpenAI event channel to React
 // state, and (c) keeping the exposed setters reactive while delegating to the
 // engine — all of which we assert without a real engine.
+// requireActual below pulls in the real module, which reaches the native seam on import.
+jest.mock('./NativeOpenAIRealtimeToolkit')
+
 jest.mock('./OpenAIRealtimeToolkit', () => {
+  // The real error class — the provider constructs it and branches on `instanceof`,
+  // so a stub would let a broken narrowing pass.
+  const { OpenAIRealtimeError } = jest.requireActual('./OpenAIRealtimeToolkit')
   let openaiListener: ((e: any) => void) | null = null
+  let errorListener: ((e: any) => void) | null = null
   const openAIRealtimeToolkit = {
-    initialize: jest.fn(),
+    // Mirrors the real one: an SDK refusal is announced on the error channel
+    // during initialize(), which is why the provider subscribes before calling it.
+    initialize: jest.fn(() => {
+      if (openAIRealtimeToolkit.initError) {
+        errorListener?.(new OpenAIRealtimeError('INIT_FAILED', openAIRealtimeToolkit.initError, true))
+      }
+    }),
     isRunning: false,
+    // Set by the real initialize() when the SDK refuses the credentials.
+    initError: null as string | null,
     start: jest.fn(() => Promise.resolve()),
     stop: jest.fn(),
     release: jest.fn(),
     requestMicrophonePermission: jest.fn(() => Promise.resolve(true)),
     setInstructions: jest.fn(),
+    setVoice: jest.fn(),
+    setSpeed: jest.fn(),
     setLocalTurnHandling: jest.fn(),
     setPreset: jest.fn(),
     setCustomKnobs: jest.fn(),
@@ -27,36 +44,60 @@ jest.mock('./OpenAIRealtimeToolkit', () => {
         }),
       }
     }),
+    addErrorListener: jest.fn((listener: (e: any) => void) => {
+      errorListener = listener
+      return {
+        remove: jest.fn(() => {
+          errorListener = null
+        }),
+      }
+    }),
   }
   return {
     openAIRealtimeToolkit,
+    OpenAIRealtimeError,
     __emitOpenAI: (e: any) => openaiListener?.(e),
+    __emitError: (e: any) => errorListener?.(e),
     __hasOpenAIListener: () => openaiListener !== null,
+    __hasErrorListener: () => errorListener !== null,
   }
 })
 
 import { OpenAIRealtimeToolkitProvider, useOpenAIRealtimeToolkit } from './OpenAIRealtimeToolkitProvider'
+import { OpenAIRealtimeError, type OpenAIRealtimeErrorCode } from './OpenAIRealtimeToolkit'
 import { QUIET_CONFIG, NOISY_CONFIG } from './presets'
 
 const mockModule = jest.requireMock('./OpenAIRealtimeToolkit') as {
   openAIRealtimeToolkit: {
     initialize: jest.Mock
     isRunning: boolean
+    initError: string | null
     start: jest.Mock
     stop: jest.Mock
     release: jest.Mock
     requestMicrophonePermission: jest.Mock
     setInstructions: jest.Mock
+    setVoice: jest.Mock
+    setSpeed: jest.Mock
     setLocalTurnHandling: jest.Mock
     setPreset: jest.Mock
     setCustomKnobs: jest.Mock
     registerTool: jest.Mock
     addEventListener: jest.Mock
+    addErrorListener: jest.Mock
   }
   __emitOpenAI: (e: any) => void
+  __emitError: (e: OpenAIRealtimeError) => void
   __hasOpenAIListener: () => boolean
+  __hasErrorListener: () => boolean
 }
-const { openAIRealtimeToolkit, __emitOpenAI, __hasOpenAIListener } = mockModule
+const { openAIRealtimeToolkit, __emitOpenAI, __emitError, __hasOpenAIListener, __hasErrorListener } =
+  mockModule
+
+/** A failure as the toolkit would deliver it on the error channel. */
+function failure(code: OpenAIRealtimeErrorCode, message: string, fatal: boolean) {
+  return new OpenAIRealtimeError(code, message, fatal)
+}
 
 const CREDS = { appId: 'app-1', appSecret: 'secret-1', openAIApiKey: 'sk-1' }
 
@@ -75,7 +116,12 @@ function renderProvider(props: Record<string, unknown> = {}) {
 beforeEach(() => {
   jest.clearAllMocks()
   openAIRealtimeToolkit.start.mockResolvedValue(undefined)
+  // clearAllMocks clears calls, not implementations — a test that makes stop()
+  // throw would otherwise leak into the rest of the suite.
+  openAIRealtimeToolkit.stop.mockImplementation(() => {})
   openAIRealtimeToolkit.requestMicrophonePermission.mockResolvedValue(true)
+  // Plain property — clearAllMocks doesn't reset it.
+  openAIRealtimeToolkit.initError = null
 })
 
 describe('credential validation', () => {
@@ -92,11 +138,11 @@ describe('credential validation', () => {
     errSpy.mockRestore()
   })
 
-  it('throws when openAIApiKey is empty or whitespace', () => {
-    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-    expect(() => renderProvider({ openAIApiKey: '' })).toThrow('openAIApiKey is required')
-    expect(() => renderProvider({ openAIApiKey: '   ' })).toThrow('openAIApiKey is required')
-    errSpy.mockRestore()
+  it('accepts a missing openAIApiKey — the key is optional', () => {
+    expect(() => renderProvider({ openAIApiKey: undefined })).not.toThrow()
+    expect(openAIRealtimeToolkit.initialize).toHaveBeenCalledWith(
+      expect.objectContaining({ openAIApiKey: undefined })
+    )
   })
 })
 
@@ -127,11 +173,92 @@ describe('mount', () => {
     expect(result.current.connectionStatus).toBe('none')
   })
 
+  it('seeds voice / speed / model from the props, defaulting to the node defaults', () => {
+    const seeded = renderProvider({ voice: 'marin', speed: 1.25, model: 'gpt-realtime' })
+    expect(seeded.result.current.voice).toBe('marin')
+    expect(seeded.result.current.speed).toBe(1.25)
+    expect(seeded.result.current.model).toBe('gpt-realtime')
+    expect(openAIRealtimeToolkit.initialize).toHaveBeenCalledWith(
+      expect.objectContaining({ voice: 'marin', speed: 1.25, model: 'gpt-realtime' })
+    )
+    const defaults = renderProvider()
+    expect(defaults.result.current.voice).toBe('cedar')
+    expect(defaults.result.current.speed).toBe(1.0)
+    expect(defaults.result.current.model).toBe('gpt-realtime-2')
+  })
+
+  it('clamps an out-of-range seeded speed', () => {
+    const { result } = renderProvider({ speed: 4 })
+    expect(result.current.speed).toBe(1.5)
+  })
+
   it('seeds knob values from the prop', () => {
     const { result } = renderProvider({ localTurnHandling: { config: { duckGain: 0.1 } } })
     // The seeded knob applies; the rest fall back to their defaults.
     expect(result.current.localTurnHandling.config.duckGain).toBe(0.1)
     expect(result.current.localTurnHandling.config.pauseToleranceMs).toBe(0)
+  })
+})
+
+describe('engine-level failures', () => {
+  it('surfaces an SDK init refusal as `error` on mount instead of red-boxing', () => {
+    openAIRealtimeToolkit.initError = 'Switchboard initialization failed: Invalid app secret'
+    const { result } = renderProvider()
+    expect(result.current.error?.code).toBe('INIT_FAILED')
+    expect(result.current.error?.message).toBe(
+      'Switchboard initialization failed: Invalid app secret'
+    )
+    // Not the session's own failure, so it must not masquerade as one.
+    expect(result.current.connectionStatus).toBe('none')
+  })
+
+  it('leaves `error` null when the engine initialized cleanly', () => {
+    const { result } = renderProvider()
+    expect(result.current.error).toBeNull()
+  })
+
+  it('keeps isRunning true and reports why when stop() is refused', async () => {
+    openAIRealtimeToolkit.stop.mockImplementation(() => {
+      throw new OpenAIRealtimeError('ENGINE_STOP_FAILED', 'Engine stop failed: Engine busy', true)
+    })
+    const { result } = renderProvider()
+    await act(async () => {
+      await result.current.start()
+    })
+    expect(result.current.isRunning).toBe(true)
+    act(() => result.current.stop())
+    // Still running — the UI must not offer "Start" over a live mic.
+    expect(result.current.isRunning).toBe(true)
+    expect(result.current.error?.code).toBe('ENGINE_STOP_FAILED')
+    expect(result.current.error?.message).toBe('Engine stop failed: Engine busy')
+  })
+
+  it('reports a start() failure by message, without the "Error:" prefix', async () => {
+    openAIRealtimeToolkit.start.mockRejectedValue(
+      new OpenAIRealtimeError(
+        'ENGINE_START_FAILED',
+        'Engine start failed: Audio session unavailable',
+        true
+      )
+    )
+    const { result } = renderProvider()
+    await act(async () => {
+      await result.current.start()
+    })
+    expect(result.current.error?.message).toBe('Engine start failed: Audio session unavailable')
+    expect(result.current.isRunning).toBe(false)
+  })
+
+  it('wraps an unexpected throw so `error` is always an OpenAIRealtimeError', async () => {
+    // Not everything that can reject is ours — a native module blowing up, say.
+    openAIRealtimeToolkit.start.mockRejectedValue(new Error('something else entirely'))
+    const { result } = renderProvider()
+    await act(async () => {
+      await result.current.start()
+    })
+    expect(result.current.error).toBeInstanceOf(OpenAIRealtimeError)
+    expect(result.current.error?.code).toBe('ENGINE_START_FAILED')
+    expect(result.current.error?.message).toBe('something else entirely')
   })
 })
 
@@ -142,8 +269,8 @@ describe('OpenAI event → React state mapping', () => {
     expect(result.current.connectionStatus).toBe('connecting')
     act(() => __emitOpenAI({ name: 'sessionCreated' }))
     expect(result.current.connectionStatus).toBe('connected')
-    act(() => __emitOpenAI({ name: 'error' }))
-    expect(result.current.connectionStatus).toBe('error')
+    act(() => __emitOpenAI({ name: 'sessionDisconnected' }))
+    expect(result.current.connectionStatus).toBe('connecting')
   })
 
   it('maps input/response transcription events to the transcripts', () => {
@@ -152,6 +279,107 @@ describe('OpenAI event → React state mapping', () => {
     expect(result.current.inputTranscription).toBe('hello')
     act(() => __emitOpenAI({ name: 'responseTranscription', data: { transcript: 'hi there' } }))
     expect(result.current.outputTranscription).toBe('hi there')
+  })
+})
+
+describe('the error channel', () => {
+  it('subscribes before initialize(), so a refusal during it is still caught', () => {
+    const order: string[] = []
+    openAIRealtimeToolkit.addErrorListener.mockImplementationOnce(() => {
+      order.push('subscribe')
+      return { remove: jest.fn() }
+    })
+    openAIRealtimeToolkit.initialize.mockImplementationOnce(() => {
+      order.push('initialize')
+    })
+    renderProvider()
+    expect(order).toEqual(['subscribe', 'initialize'])
+  })
+
+  it('keeps a fatal failure in `error`', () => {
+    const { result } = renderProvider()
+    act(() => __emitError(failure('SESSION_FAILED', 'Incorrect API key provided: sk-…', true)))
+    expect(result.current.error?.code).toBe('SESSION_FAILED')
+    expect(result.current.error?.message).toBe('Incorrect API key provided: sk-…')
+    expect(result.current.connectionStatus).toBe('error')
+  })
+
+  it('keeps a non-fatal failure out of `error` entirely', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const { result } = renderProvider()
+    act(() => __emitError(failure('TOOL_HANDLER_FAILED', "Tool 'weather' failed: boom", false)))
+    // Nothing would ever clear it, so it must not become state at all.
+    expect(result.current.error).toBeNull()
+    expect(result.current.connectionStatus).toBe('none')
+    warnSpy.mockRestore()
+  })
+
+  it('leaves connectionStatus alone for a session failure the session survived', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const { result } = renderProvider()
+    act(() => __emitOpenAI({ name: 'sessionCreated' }))
+    // The toolkit marks a failure during a live session non-fatal: the
+    // conversation still works, so the status must keep saying so.
+    act(() => __emitError(failure('SESSION_FAILED', 'tools is not valid JSON.', false)))
+    expect(result.current.connectionStatus).toBe('connected')
+    expect(result.current.error).toBeNull()
+    warnSpy.mockRestore()
+  })
+
+  it("keeps 'error' sticky across the node's reconnect attempts", () => {
+    const { result } = renderProvider()
+    act(() => __emitError(failure('SESSION_FAILED', 'bad key', true)))
+    // The OpenAI node retries every few seconds; neither leg may hide the failure.
+    act(() => __emitOpenAI({ name: 'sessionDisconnected' }))
+    expect(result.current.connectionStatus).toBe('error')
+    act(() => __emitOpenAI({ name: 'sessionStarting' }))
+    expect(result.current.connectionStatus).toBe('error')
+    expect(result.current.error?.message).toBe('bad key')
+    // A session that actually comes up is the only thing that clears it.
+    act(() => __emitOpenAI({ name: 'sessionCreated' }))
+    expect(result.current.connectionStatus).toBe('connected')
+    expect(result.current.error).toBeNull()
+  })
+
+  it('passes every failure to onError, fatal or not', async () => {
+    const onError = jest.fn()
+    const { result } = renderProvider({ onError })
+    act(() => __emitError(failure('TOOL_HANDLER_FAILED', 'boom', false)))
+    act(() => __emitError(failure('SESSION_FAILED', 'bad key', true)))
+    // Including the ones that arrive as rejections rather than events.
+    openAIRealtimeToolkit.requestMicrophonePermission.mockResolvedValue(false)
+    await act(async () => {
+      await result.current.start()
+    })
+    expect(onError.mock.calls.map(([e]) => e.code)).toEqual([
+      'TOOL_HANDLER_FAILED',
+      'SESSION_FAILED',
+      'MIC_PERMISSION_DENIED',
+    ])
+  })
+
+  it('warns for a non-fatal failure only when no onError prop is watching', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const { unmount } = renderProvider()
+    act(() => __emitError(failure('RESPONSE_FAILED', 'createResponse failed: no session', false)))
+    // Otherwise it would vanish without a trace.
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('RESPONSE_FAILED: createResponse failed: no session')
+    )
+    unmount()
+
+    warnSpy.mockClear()
+    renderProvider({ onError: jest.fn() })
+    act(() => __emitError(failure('RESPONSE_FAILED', 'createResponse failed: no session', false)))
+    expect(warnSpy).not.toHaveBeenCalled()
+    warnSpy.mockRestore()
+  })
+
+  it('detaches the error listener on unmount', () => {
+    const { unmount } = renderProvider()
+    expect(__hasErrorListener()).toBe(true)
+    unmount()
+    expect(__hasErrorListener()).toBe(false)
   })
 })
 
@@ -175,7 +403,10 @@ describe('start', () => {
     })
     expect(openAIRealtimeToolkit.start).not.toHaveBeenCalled()
     expect(result.current.isRunning).toBe(false)
-    expect(result.current.error).toBe('Microphone permission denied')
+    expect(result.current.error?.code).toBe('MIC_PERMISSION_DENIED')
+    expect(result.current.error?.message).toBe('Microphone permission denied')
+    // A denied mic isn't the session failing — it never got that far.
+    expect(result.current.connectionStatus).toBe('none')
   })
 
   it('captures a thrown start error', async () => {
@@ -185,7 +416,7 @@ describe('start', () => {
       await result.current.start()
     })
     expect(result.current.isRunning).toBe(false)
-    expect(result.current.error).toContain('engine boom')
+    expect(result.current.error?.message).toContain('engine boom')
   })
 })
 
@@ -224,6 +455,20 @@ describe('setters are reactive and delegate to the engine', () => {
     act(() => result.current.setInstructions('new prompt'))
     expect(result.current.instructions).toBe('new prompt')
     expect(openAIRealtimeToolkit.setInstructions).toHaveBeenCalledWith('new prompt')
+  })
+
+  it('setVoice updates the value and calls the engine', () => {
+    const { result } = renderProvider()
+    act(() => result.current.setVoice('verse'))
+    expect(result.current.voice).toBe('verse')
+    expect(openAIRealtimeToolkit.setVoice).toHaveBeenCalledWith('verse')
+  })
+
+  it('setSpeed clamps to the node range before exposing it and calling the engine', () => {
+    const { result } = renderProvider()
+    act(() => result.current.setSpeed(0.1))
+    expect(result.current.speed).toBe(0.5)
+    expect(openAIRealtimeToolkit.setSpeed).toHaveBeenCalledWith(0.5)
   })
 
   it('setEnabled updates the value and calls the engine', () => {
