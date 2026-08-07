@@ -33,8 +33,8 @@ import { colors } from './colors';
 // ── Credentials ──────────────────────────────────────────────────────────────
 // Get Switchboard credentials at https://console.switchboard.audio.
 // Don't commit real secrets.
-const SWITCHBOARD_APP_ID = '6a75f50cc9ccd4a075fa165e';
-const SWITCHBOARD_APP_SECRET = '13d9335b9b2ef6bc0de2d98adacb7c096bc1bfc1';
+const SWITCHBOARD_APP_ID = '6a75f93fc9ccd4a075fa1669';
+const SWITCHBOARD_APP_SECRET = '28b7400732e5dd15e7297764b9cf4d50cc9ec92d';
 
 // System prompt for the OpenAI Realtime model.
 const INSTRUCTIONS =
