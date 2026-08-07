@@ -92,20 +92,9 @@ Install it once if you don't have it:
 "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"
 ```
 
-The Switchboard native libraries reference `__cxa_init_primary_exception`, a symbol only
-exported by NDK 29's `libc++_shared.so`. Your app packages exactly one
-`libc++_shared.so` — the one from *its* NDK — so on the template's 27.x the Switchboard
-libraries can't be loaded. This builds and installs fine; it fails at launch:
-
-```
-SoLoader: java.lang.UnsatisfiedLinkError: dlopen failed: cannot locate symbol
-  "__cxa_init_primary_exception" referenced by ".../lib/arm64-v8a/libSwitchboardSDK.so"
-SoLoader: couldn't find DSO to load: libSwitchboardSDK.so
-ReactNativeJS: Invariant Violation: TurboModuleRegistry.getEnforcing(...):
-  'PlatformConstants' could not be found.
-```
-
-(27.x is confirmed broken and 29 confirmed good; 28.x is untested — pin 29.)
+The Switchboard native libraries need NDK 29's `libc++_shared.so`. On 27.x the app builds
+and installs fine but fails at launch with `UnsatisfiedLinkError: cannot locate symbol
+"__cxa_init_primary_exception"`.
 
 **4. Drop 32-bit x86.** The Switchboard libraries ship `arm64-v8a`, `armeabi-v7a` and
 `x86_64` — there is no 32-bit `x86` slice, but the React Native template's
