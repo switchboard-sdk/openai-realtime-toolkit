@@ -30,8 +30,7 @@ import {
 import { colors } from './colors';
 
 // ── Credentials ──────────────────────────────────────────────────────────────
-// Get Switchboard credentials at https://console.switchboard.audio.
-// Don't commit real secrets.
+// Get your Switchboard credentials at https://console.switchboard.audio.
 const SWITCHBOARD_APP_ID = '6a75f93fc9ccd4a075fa1669';
 const SWITCHBOARD_APP_SECRET = '28b7400732e5dd15e7297764b9cf4d50cc9ec92d';
 
