@@ -7,15 +7,14 @@ Native 0.86, new architecture.
 
 ## 1. Credentials
 
-**Switchboard** — the app ships with working demo credentials
-(`SWITCHBOARD_APP_ID` / `SWITCHBOARD_APP_SECRET` in [`App.tsx`](App.tsx)), so
-there's nothing to configure to try it out. Swap in your own from
-[console.switchboard.audio](https://console.switchboard.audio) for your real app.
+**Nothing to configure to run the example.** It ships with demo Switchboard
+credentials (`SWITCHBOARD_APP_ID` / `SWITCHBOARD_APP_SECRET` in
+[`App.tsx`](App.tsx)), and those credentials have an OpenAI API key associated
+with them for testing — so the app passes no `openAIApiKey` of its own.
 
-**OpenAI** — nothing to configure either. The app passes no `openAIApiKey`, so it
-runs on a shared test key that comes with the demo Switchboard credentials. That
-key is rate-limited and **rotated without notice** — it's there so you can try the
-example, not to ship with.
+**For anything real, use your own keys.** The demo credentials are rate-limited
+and **rotated without notice**. Get Switchboard credentials from
+[console.switchboard.audio](https://console.switchboard.audio).
 
 To use **your own key**, copy the template and fill it in — the app reads it from
 `@env` (via `react-native-dotenv`), so it goes in a `.env` file, not in source:
@@ -48,17 +47,13 @@ cd example
 npm install
 ```
 
-The example consumes the library from the repo root via `file:..`, and the package's
-`main`/`types` point at the built `dist/` — which only exists once the root's
-`npm install` has run its build. Skip it and TypeScript can't resolve the library at
-all (`Cannot find module '@synervoz/openai-realtime-toolkit' or its corresponding type
-declarations`), even though Metro would still bundle the app from `src/`. From the repo
-root, `npm run example:install` does both in the right order.
+Or from the repo root: `npm run example:install`, which does both in order.
 
-This symlinks the OpenAIRealtimeToolkit library from the repo root (`file:..`). Do **not**
-run `npm install @synervoz/openai-realtime-toolkit` inside `example/` — that fetches the
-published package instead of the local copy you're trying to test. The plain `npm install`
-uses the symlink.
+The example symlinks the library from the repo root (`file:..`), and its `types`
+point at the built `dist/` — so skipping the root install leaves TypeScript unable
+to resolve `@synervoz/openai-realtime-toolkit`. Don't run
+`npm install @synervoz/openai-realtime-toolkit` here either; that replaces the
+symlink with the published package.
 
 ### How Metro finds the local library ([metro.config.js](metro.config.js))
 
