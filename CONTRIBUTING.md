@@ -12,6 +12,25 @@ npm run format      # Prettier
 `main`/`types` resolve to the built `dist/`; `react-native`/`source` resolve to
 `src/` so Metro uses the TypeScript directly (no prebuild needed in dev).
 
+### Testing against a real consumer app
+
+[`example/`](example) depends on the checkout directly (`file:..`), so it picks up
+`src/` changes with no extra step. To test a *separate* app the way a user would
+install the package, pack a tarball:
+
+```sh
+npm install     # must come first: `npm pack` runs `prepare` → `tsc`, so without the
+                # devDependencies it fails with "tsc: command not found" (npm code 127)
+npm pack        # → synervoz-openai-realtime-toolkit-0.1.0.tgz
+
+cd /path/to/that-app
+npm install /path/to/openai-realtime-toolkit/synervoz-openai-realtime-toolkit-0.1.0.tgz
+```
+
+Install the tarball, not `file:../openai-realtime-toolkit` — a symlinked package
+breaks Metro resolution and duplicates React. The tarball is a snapshot, so re-pack
+and re-install after every change, or the app keeps building against the old API.
+
 ## Tests
 
 Run the unit suite with:
