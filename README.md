@@ -240,9 +240,8 @@ The provider takes a **Switchboard** `appId` / `appSecret` pair (required) and y
 
 Wrap your app in `OpenAIRealtimeToolkitProvider` with your credentials, then drive it from
 any component with the `useOpenAIRealtimeToolkit()` hook. `start()` requests the mic and
-builds the voice graph — microphone → OpenAI.Realtime → speaker, with on-device
-SileroVAD + SmartTurn taps for turn detection and barge-in, and hardware echo
-cancellation (VPIO):
+builds the voice graph — microphone → OpenAI.Realtime → speaker, with optional on-device
+turn detection and barge-in, and hardware echo cancellation (VPIO):
 
 ```tsx
 import React from 'react';
@@ -326,6 +325,9 @@ localTurnHandling.enabled;            // on-device turn detection vs OpenAI's se
 localTurnHandling.setEnabled(true);
 ```
 
+New to turn detection? Start at [How turn detection works](#how-turn-detection-works) —
+it explains the pipeline before the knobs.
+
 #### Voice, speed, and model
 
 Seed them on the provider:
@@ -346,6 +348,50 @@ const { voice, setVoice, speed, setSpeed, model } = useOpenAIRealtimeToolkit();
 
 `VOICES` and `SPEED_RANGE` are exported for building a picker or a slider.
 
+#### How turn detection works
+
+Out of the box, OpenAI decides when you've stopped talking (its own `server_vad`).
+Turning `localTurnHandling` on moves that decision **on-device**, where you can tune it:
+
+```tsx
+localTurnHandling.setEnabled(true);   // or <OpenAIRealtimeToolkitProvider localTurnHandling={{ enabled: true }} … />
+```
+
+It runs in two stages:
+
+1. **Voice detection** — the *ear*. It only answers "is someone speaking right now?"
+   Sound louder than `vadThreshold` counts as speech; once it hears `vadSilenceMs` of
+   quiet it reports "speech ended."
+2. **Semantic analysis** — the *listener*. When stage 1 says you went quiet, this stage
+   looks at *what* you said and scores (0–1) how likely it is a **complete thought**
+   rather than a mid-sentence pause ("so I was thinking, uh…"). That score is what the
+   `*semantic*` knobs below govern.
+
+The toolkit then decides your turn is over: it holds `pauseToleranceMs` longer (start
+talking again inside that window and the turn simply continues), checks you spoke for at
+least `minInputLengthMs`, and combines that with the semantic score per
+`semanticStrategy`. If it agrees, your audio is **committed** to OpenAI and the reply
+starts. If it doesn't, nothing is sent — `semanticFailTimeoutMs` is the safety net that
+commits anyway when you stay quiet.
+
+Separately, the instant stage 1 hears you start, **barge-in** runs on the AI's in-flight
+reply: duck its volume to `duckGain` immediately, `pauseOutput` after `pauseTimeMs`, and
+cancel the response after `cancelTimeMs` (off by default).
+
+So, in short: the **`vad*` knobs** decide what counts as speech, the **`*semantic*` knobs**
+decide whether a sentence sounds finished, and the **barge-in knobs** decide what happens
+to the AI while you talk over it.
+
+#### Start with a preset
+
+Most apps never need to touch a knob — pick the preset that matches the room:
+
+| Preset | Use it for | How it differs |
+| --- | --- | --- |
+| `QUIET_CONFIG` | Quiet room, phone at your face | Lower `vadThreshold` (`0.4`), short `minInputLengthMs` (`300`), semantic thresholds at `0` (semantic analysis always passes), fast + strong duck → snappiest replies |
+| `BALANCED_CONFIG` | The default; every knob at its default | — |
+| `NOISY_CONFIG` | Café, background chatter, speakerphone | Higher `vadThreshold` (`0.6`), `minInputLengthMs` `1000`, real semantic confidence required (`0.5`), slower/softer duck → far fewer turns triggered by noise |
+
 `localTurnHandling.config` is the tuning (used only while `enabled`). Read a knob as a value;
 write with `setConfig` — a partial patch tweaks, a full knob set selects a preset:
 
@@ -363,10 +409,24 @@ setConfig({ ...QUIET_CONFIG, pauseToleranceMs: 3000 });  // preset + tweak
 Or seed it on the provider: `localTurnHandling={{ enabled: true, config: QUIET_CONFIG }}`.
 Reset from scratch with `DEFAULT_CONFIG` as the base: `setConfig({ ...DEFAULT_CONFIG, ...tweaks })`.
 
+#### Which knob do I reach for?
+
+Match the symptom, then reach for the knob table below for exact ranges.
+
+| It feels like… | Try |
+| --- | --- |
+| "It cuts me off mid-sentence" | Raise `pauseToleranceMs` (e.g. `1500`) so a thinking pause isn't the end of your turn, and/or `vadSilenceMs`. Raise `minSemanticConfidence` so semantic analysis has to be surer you're done. |
+| "It's slow to reply after I stop" | Lower `vadSilenceMs` (e.g. `300`) and `pauseToleranceMs`. Lower the semantic confidences, or `semanticStrategy: 'off'` to skip the semantic stage entirely. |
+| "Background noise / people in the next room trigger it" | `setConfig(NOISY_CONFIG)`. Raise `vadThreshold` (`0.6`–`0.7`) so quiet, distant speech doesn't register, and `minInputLengthMs` so short bursts don't count. |
+| "Short answers ('yes', 'stop') get ignored" | Lower `minInputLengthMs`, or use `semanticStrategy: 'rescue'` so a confident semantic score commits an otherwise-too-short utterance. |
+| "It went quiet — my turn never got answered" | Set `semanticFailTimeoutMs` (e.g. `4000`) so a semantically-rejected turn still commits after that much silence. |
+| "The AI keeps talking over me" | Lower `pauseTimeMs`, lower `duckGain` (`0` mutes it), set a finite `cancelTimeMs` to drop the response outright. |
+| "The AI's answer restarts/repeats after I interrupt" | `commitBehavior: 'finish'` keeps the in-flight response instead of cancelling it. |
+
 #### Config knobs
 
-Each field of `config`. Hover any knob in your editor for the same docs; `KNOB_SPECS`
-carries `min`/`max`/`options` at runtime for building sliders.
+The advanced reference — each field of `config`. Hover any knob in your editor for the same
+docs; `KNOB_SPECS` carries `min`/`max`/`options` at runtime for building sliders.
 
 **Turn detection** — when is the user's turn over?
 
@@ -375,25 +435,33 @@ Disable-able duration knobs use `Infinity` to mean "off" (`semanticFailTimeoutMs
 
 | Knob | What it does | Default | Range |
 | --- | --- | --- | --- |
-| `vadThreshold` | SileroVAD activation threshold; higher needs louder speech | `0.5` | `0.0`–`1.0` |
-| `vadSilenceMs` | Silence (ms) SileroVAD holds before declaring speech ended | `500` | `100`–`6000` |
-| `minInputLengthMs` | How long (ms) the user must speak for it to count as a turn | `600` | `200`–`6000` |
-| `pauseToleranceMs` | Silence (ms) held after the user stops before ending the turn | `0` | `0`–`6000` |
-| `semanticStrategy` | How SmartTurn's verdict combines with utterance length | `'gate'` | `off` \| `rescue` \| `gate` |
-| `minSemanticConfidence` | SmartTurn confidence for short utterances | `0.01` | `0`–`0.9` |
-| `maxSemanticConfidence` | SmartTurn confidence for long utterances | `0.5` | `0`–`0.9` |
-| `thresholdBreakpointMs` | Utterance duration (ms) splitting min- from max-confidence | `2000` | `1000`–`6000` |
-| `semanticFailTimeoutMs` | Force a commit after a semantic reject if silence lasts this long (ms) | `Infinity` (off) | `3000`–`6000` |
+| `vadThreshold` | How loud speech has to be before it counts as talking. Raise it in a noisy room so background sound isn't heard as speech. | `0.5` | `0.0`–`1.0` |
+| `vadSilenceMs` | How long you have to go quiet before voice detection calls your speech over. Lower = snappier, more likely to clip a pause. | `500` | `100`–`6000` |
+| `minInputLengthMs` | Minimum time you must speak for it to count as a turn at all — filters out coughs and short noise bursts. | `600` | `200`–`6000` |
+| `pauseToleranceMs` | Extra silence held *after* voice detection's own hold before ending the turn. Your grace period for thinking mid-sentence. | `0` | `0`–`6000` |
+| `semanticStrategy` | Whether the "did that sound finished?" check is required, optional, or ignored (see below). | `'gate'` | `off` \| `rescue` \| `gate` |
+| `minSemanticConfidence` | Score required for **short** utterances (under `thresholdBreakpointMs`) — short speech gives the check less to go on, so this is usually lower. | `0.01` | `0`–`0.9` |
+| `maxSemanticConfidence` | Score required for **long** utterances. Raise both to be cut off less; lower both to reply sooner. | `0.5` | `0`–`0.9` |
+| `thresholdBreakpointMs` | Where "short" ends and "long" begins, i.e. which of the two confidences applies. | `2000` | `1000`–`6000` |
+| `semanticFailTimeoutMs` | Safety net: if semantic analysis rejected a real-length turn and you stay quiet this long, commit anyway so the assistant still answers. | `Infinity` (off) | `3000`–`6000` |
+
+`semanticStrategy` is how the length check and the semantic score are combined:
+
+| Value | Meaning |
+| --- | --- |
+| `'off'` | Semantic analysis is skipped; long enough (`minInputLengthMs`) is all it takes. Fastest, most likely to cut you off. |
+| `'rescue'` | Long enough **or** sounds finished — a high score rescues an utterance that was too short. |
+| `'gate'` (default) | Long enough **and** sounds finished — a low score vetoes a mid-sentence pause. |
 
 **Barge-in** — how the in-flight AI response is interrupted.
 
 | Knob | What it does | Default | Range |
 | --- | --- | --- | --- |
-| `pauseTimeMs` | Delay (ms) after the user speaks before pausing the AI | `800` | `400`–`6000` |
-| `cancelTimeMs` | Delay (ms) after the user speaks before cancelling the AI's response | `Infinity` (off) | `2000`–`16000` |
-| `duckGain` | Gain (0–1) the AI is attenuated to while the user speaks (0 = mute) | `0.3` | `0`–`1` |
-| `duckTimeMs` | How quickly (ms) the AI fades in/out of the ducked level | `100` | `0`–`1000` |
-| `commitBehavior` | What to do with the in-flight AI response when a turn completes | `'cancel'` | `cancel` \| `finish` |
+| `pauseTimeMs` | How long you have to be talking before the AI stops speaking. Lower it if it talks over you. | `800` | `400`–`6000` |
+| `cancelTimeMs` | How long before the AI's current answer is thrown away rather than just paused. Off by default, so it resumes. | `Infinity` (off) | `2000`–`16000` |
+| `duckGain` | How far the AI's volume drops the moment you start talking (`0` = silent, `1` = unchanged). | `0.3` | `0`–`1` |
+| `duckTimeMs` | How quickly that volume drop fades in and out — too fast can click, too slow feels laggy. | `100` | `0`–`1000` |
+| `commitBehavior` | When your turn commits: `cancel` drops the AI's unfinished answer, `finish` lets it play out. | `'cancel'` | `cancel` \| `finish` |
 
 ### Tool calling
 
