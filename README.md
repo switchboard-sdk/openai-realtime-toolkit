@@ -586,18 +586,18 @@ if (error?.code === 'MIC_PERMISSION_DENIED') return <OpenSettingsPrompt />;
 if (error) return <Text>{error.message}</Text>;
 ```
 
-| `code` | Meaning | `fatal` |
-| --- | --- | --- |
-| `INIT_FAILED` | The Switchboard SDK refused to initialize (rejected credentials, extension load failure). | yes |
-| `NOT_INITIALIZED` | An action needed the SDK, which never came up. | yes |
-| `MIC_PERMISSION_DENIED` | The user denied microphone access. | yes |
-| `ENGINE_CREATION_FAILED` | The audio graph couldn't be built. | yes |
-| `ENGINE_START_FAILED` | The engine refused to start (audio session unavailable, mic held by another app). | yes |
-| `ENGINE_STOP_FAILED` | The engine refused to stop — still running, mic still hot. | yes |
-| `SESSION_FAILED` | OpenAI reported a session failure (bad key, quota, unknown model, bad tool schema). | only when no session is up |
-| `TOOL_HANDLER_FAILED` | A tool handler threw. Already reported to the model. | no |
-| `TOOL_RESULT_UNDELIVERED` | A tool result never reached OpenAI (dead session, stale call id). | no |
-| `RESPONSE_FAILED` | The model couldn't be resumed after a tool call. | no |
+| `code` | Meaning |
+| --- | --- |
+| `INIT_FAILED` | The Switchboard SDK refused to initialize (rejected credentials, extension load failure). |
+| `NOT_INITIALIZED` | An action needed the SDK, which never came up. |
+| `MIC_PERMISSION_DENIED` | The user denied microphone access. |
+| `ENGINE_CREATION_FAILED` | The audio graph couldn't be built. |
+| `ENGINE_START_FAILED` | The engine refused to start (audio session unavailable, mic held by another app). |
+| `ENGINE_STOP_FAILED` | The engine refused to stop — still running, mic still hot. |
+| `SESSION_FAILED` | OpenAI reported a session failure (bad key, quota, unknown model, bad tool schema). |
+| `TOOL_HANDLER_FAILED` | A tool handler threw. Already reported to the model. |
+| `TOOL_RESULT_UNDELIVERED` | A tool result never reached OpenAI (dead session, stale call id). |
+| `RESPONSE_FAILED` | The model couldn't be resumed after a tool call. |
 
 `connectionStatus` (`'none' | 'connecting' | 'connected' | 'error'`) tracks the OpenAI
 session and nothing else. It reads `'error'` only when the session itself was attempted
