@@ -10,14 +10,16 @@ jobs:
     name: Publish to npm
     runs-on: ubuntu-latest
     permissions:
+      id-token: write # npm trusted publishing + provenance (publishConfig.provenance)
       contents: read
-      id-token: write # required for npm provenance (publishConfig.provenance)
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: "npm"
           registry-url: "https://registry.npmjs.org"
 
       # `prepare` builds dist/ on install; the explicit build below keeps it
@@ -28,10 +30,8 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Public scoped package: access (public) and provenance come from
-      # package.json publishConfig. NPM_TOKEN must have publish rights to the
-      # @synervoz scope.
+      # No NODE_AUTH_TOKEN: auth comes from the OIDC token above via npm trusted
+      # publishing, configured on npmjs.com for this repo + workflow. Node 22's
+      # bundled npm predates that support, hence npm@latest.
       - name: Publish
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npx --yes npm@latest publish
