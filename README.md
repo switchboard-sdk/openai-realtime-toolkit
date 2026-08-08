@@ -25,7 +25,7 @@ npm install @synervoz/openai-realtime-toolkit
 | Android NDK      | 29 — see [Android](#android) |
 | Node.js          | 22+                         |
 
-openai-realtime-toolkit is a bare React Native **C++ TurboModule** and requires the **[New Architecture](https://reactnative.dev/architecture/landing-page)**. It works in both Expo (prebuild) and bare React Native apps.
+openai-realtime-toolkit is a **C++ TurboModule** and requires the **[New Architecture](https://reactnative.dev/architecture/landing-page)**. It works in both React Native CLI and Expo apps — but not in Expo Go, since it ships native code.
 
 ### iOS
 
@@ -44,6 +44,13 @@ app crashes when the mic is requested):
 ```
 
 ### Android
+
+**There are two paths here — pick the one that matches your app:**
+
+- **Expo** → skip this section entirely. The [config plugin](#expo) applies all four
+  steps below for you during `prebuild`. Go to [Expo](#expo).
+- **React Native CLI** (bare React Native) → apply the four steps below to your app by
+  hand.
 
 openai-realtime-toolkit's C++ TurboModule is compiled in your app's native build, so your
 app needs to (a) know the Switchboard Maven repo, (b) enable Prefab, and (c) build with
@@ -123,8 +130,8 @@ Then build:
 npx react-native run-android
 ```
 
-> **Expo apps**: the [config plugin](#expo) applies all four during `prebuild`. Every
-> Android build prints the NDK it used, so you can confirm it landed:
+> **Confirming the NDK** (either path): every Android build prints the NDK it used, so
+> you can check the right one landed:
 >
 > ```
 > [ExpoRootProject]  - ndk:  29.0.14206865
@@ -151,8 +158,8 @@ npx expo install @synervoz/openai-realtime-toolkit
 prebuild is what applies it. It declares the Switchboard Maven repo, enables Prefab,
 raises `ndkVersion` to 29, and drops the unsupported 32-bit `x86` architecture from
 `reactNativeArchitectures` in your app's own Android build files — the wiring Expo can't
-do on its own (`expo-build-properties` has no `ndkVersion` option), and which the bare-RN
-autolinking path can't land early enough under prebuild. The microphone string and
+do on its own (`expo-build-properties` has no `ndkVersion` option), and which the React
+Native CLI autolinking path can't land early enough under prebuild. The microphone string and
 permissions are handled by built-ins (below), so the plugin takes no options:
 
 ```json
