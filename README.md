@@ -355,7 +355,7 @@ It runs in two stages:
 2. **Semantic analysis** — the *listener*. When stage 1 says you went quiet, this stage
    looks at *what* you said and scores (0–1) how likely it is a **complete thought**
    rather than a mid-sentence pause ("so I was thinking, uh…"). That score is what the
-   `*semantic*` knobs below govern.
+   semantic knobs below govern.
 
 The toolkit then decides your turn is over: it holds `pauseToleranceMs` longer (start
 talking again inside that window and the turn simply continues), checks you spoke for at
@@ -368,7 +368,7 @@ Separately, the instant stage 1 hears you start, **barge-in** runs on the AI's i
 reply: duck its volume to `duckGain` immediately, `pauseOutput` after `pauseTimeMs`, and
 cancel the response after `cancelTimeMs` (off by default).
 
-So, in short: the **`vad*` knobs** decide what counts as speech, the **`*semantic*` knobs**
+So, in short: the **VAD knobs** decide what counts as speech, the **semantic knobs**
 decide whether a sentence sounds finished, and the **barge-in knobs** decide what happens
 to the AI while you talk over it.
 
