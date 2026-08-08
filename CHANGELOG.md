@@ -7,4 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Initial pre-release; see the [README](README.md) for the feature set.
+## [1.0.0] - 2026-08-07
+
+- OpenAI Realtime voice sessions for React Native, on iOS and Android
+- On-device turn detection (Silero VAD + Smart Turn) with barge-in handling
+- Tool calling via the `useTool` hook
+- `OpenAIRealtimeToolkitProvider` + configurable presets
+- C++ TurboModule (New Architecture); works in Expo prebuild and bare RN
