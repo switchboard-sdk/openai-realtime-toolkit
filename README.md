@@ -1,7 +1,6 @@
 # openai-realtime-toolkit
 
-On-device audio AI for React Native, powered by the [Switchboard SDK](https://switchboard.audio).
-openai-realtime-toolkit makes OpenAI Realtime voice models easy to use along with tool calling and customizable local turn-detection and barge-in handling.
+openai-realtime-toolkit is a React Native SDK that provides easy integration with OpenAI's voice-to-voice agents, along with on-device VAD, local turn detection, barge-in handling, and tool calling as first-class primitives for building voice-first agentic applications. Powered by the [Switchboard SDK](https://switchboard.audio).
 
 ## Platforms
 
@@ -327,7 +326,7 @@ Seed them on the provider:
 
 | Setting | Values | Default | Changing it at runtime |
 | --- | --- | --- | --- |
-| `voice` | `alloy` \| `ash` \| `ballad` \| `cedar` \| `coral` \| `echo` \| `marin` \| `sage` \| `shimmer` \| `verse` | `'cedar'` | `setVoice('marin')` — ⚠️ OpenAI starts a new session for the new voice, so the conversation so far is dropped. |
+| `voice` | `alloy` \| `ash` \| `ballad` \| `cedar` \| `coral` \| `echo` \| `marin` \| `sage` \| `shimmer` \| `verse` | `'cedar'` | `setVoice('marin')` — OpenAI starts a new session for the new voice, so the conversation so far is dropped. |
 | `speed` | `0.5`–`1.5` (out-of-range values are clamped) | `1.0` | `setSpeed(1.25)` — free, applied to the live session. |
 | `model` | any OpenAI Realtime model id, e.g. `'gpt-realtime'` | `'gpt-realtime-2'` | **Not supported.** The model is baked into the engine when it's built, so switching it would mean tearing the engine down — pick it on the provider; the hook exposes it read-only. |
 
