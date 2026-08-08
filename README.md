@@ -111,18 +111,13 @@ and installs fine but fails at launch with `UnsatisfiedLinkError: cannot locate 
 reactNativeArchitectures=armeabi-v7a,arm64-v8a,x86_64
 ```
 
-Otherwise any build that doesn't narrow the ABI list — `./gradlew assembleDebug`,
-a release build, CI, EAS — fails at configure time:
+`run-android` and `expo run:android` build only the connected device's ABI, so they pass
+either way — a release build, CI or EAS is where it surfaces:
 
 ```
 Execution failed for task ':app:configureCMakeDebug[x86]'.
 > [CXX1210] … debug|x86 : No compatible library found [//SwitchboardSmartTurn/SwitchboardSmartTurn]
 ```
-
-`npx react-native run-android` and `npx expo run:android` build only the connected
-device's ABI, so they succeed either way — this surfaces the first time someone builds
-without that narrowing. Nothing is lost: `armeabi-v7a` covers 32-bit ARM, `x86_64` covers
-emulators and Intel Chromebooks, and Google Play requires 64-bit anyway.
 
 Then build:
 
