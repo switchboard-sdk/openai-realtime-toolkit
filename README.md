@@ -155,7 +155,8 @@ raises `ndkVersion` to 29, and drops the unsupported 32-bit `x86` architecture f
 `reactNativeArchitectures` in your app's own Android build files — the wiring Expo can't
 do on its own (`expo-build-properties` has no `ndkVersion` option), and which the React
 Native CLI autolinking path can't land early enough under prebuild. The microphone string and
-permissions are handled by built-ins (below), so the plugin takes no options:
+permissions are handled by built-ins (below), so the plugin takes no options. It is only required
+for Android — every setting it writes is a Gradle one, so on an iOS-only project it does nothing:
 
 ```json
 {
