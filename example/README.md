@@ -7,8 +7,7 @@ Native 0.86, new architecture.
 
 ## 1. Credentials
 
-**Nothing to configure to run the example.** It passes no credentials at all: the
-library ships with default Switchboard credentials, and those have an OpenAI API
+The library ships with default Switchboard credentials, and those have an OpenAI API
 key associated with them for testing — so the app passes no `appId`, `appSecret`,
 or `openAIApiKey` of its own.
 
