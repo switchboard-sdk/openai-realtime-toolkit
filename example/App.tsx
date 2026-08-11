@@ -50,8 +50,8 @@ export default function App(): React.JSX.Element {
       {/* On-device turn handling starts off; toggle it at runtime via the hook.
           `config` seeds its tuning for when it's enabled. */}
       <OpenAIRealtimeToolkitProvider
-        // appId="YOUR_APP_ID"
-        // appSecret="YOUR_APP_SECRET"
+        // appId="YOUR_SWITCHBOARD_APP_ID"
+        // appSecret="YOUR_SWITCHBOARD_APP_SECRET"
         // openAIApiKey={OPENAI_API_KEY}
         instructions={INSTRUCTIONS}
         localTurnHandling={{

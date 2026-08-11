@@ -247,8 +247,8 @@ export default function App() {
   return (
     // appId / appSecret are optional — omit them to use the library's defaults.
     <OpenAIRealtimeToolkitProvider
-      appId="YOUR_APP_ID"
-      appSecret="YOUR_APP_SECRET"
+      appId="YOUR_SWITCHBOARD_APP_ID"
+      appSecret="YOUR_SWITCHBOARD_APP_SECRET"
       openAIApiKey="YOUR_OPENAI_API_KEY"
       instructions="You are a terse, friendly voice assistant.">
       <Screen />
