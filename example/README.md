@@ -14,8 +14,7 @@ or `openAIApiKey` of its own.
 **For production, use your own keys.** The shared OpenAI test key is rate-limited
 and **rotated without notice**. For Switchboard, get your own credentials from
 [console.switchboard.audio](https://console.switchboard.audio), then uncomment
-the `SWITCHBOARD_APP_ID` / `SWITCHBOARD_APP_SECRET` constants in
-[`App.tsx`](App.tsx) and the provider props that pass them.
+the `appId` / `appSecret` props in [`App.tsx`](App.tsx) and fill them in.
 
 To use **your own OpenAI key**, copy the template and fill it in — the app reads it from
 `@env` (via `react-native-dotenv`), so it goes in a `.env` file, not in source:

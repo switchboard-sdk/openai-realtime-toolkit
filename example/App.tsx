@@ -31,11 +31,8 @@ import { colors } from './colors';
 
 // ── Credentials ──────────────────────────────────────────────────────────────
 // The library ships with default Switchboard credentials, so this demo passes
-// none. For production, use your own — get them (free) at
-// https://console.switchboard.audio, then uncomment these and the two provider
-// props below.
-// const SWITCHBOARD_APP_ID = 'YOUR_APP_ID';
-// const SWITCHBOARD_APP_SECRET = 'YOUR_APP_SECRET';
+// none. For production, get your own (free) at https://console.switchboard.audio
+// and pass them to the provider below.
 
 // No `openAIApiKey` is passed below either, so the demo runs on a shared test key that's
 // rate-limited and rotated without notice — fine for trying the toolkit out,
@@ -53,8 +50,8 @@ export default function App(): React.JSX.Element {
       {/* On-device turn handling starts off; toggle it at runtime via the hook.
           `config` seeds its tuning for when it's enabled. */}
       <OpenAIRealtimeToolkitProvider
-        // appId={SWITCHBOARD_APP_ID}
-        // appSecret={SWITCHBOARD_APP_SECRET}
+        // appId="YOUR_APP_ID"
+        // appSecret="YOUR_APP_SECRET"
         // openAIApiKey={OPENAI_API_KEY}
         instructions={INSTRUCTIONS}
         localTurnHandling={{
