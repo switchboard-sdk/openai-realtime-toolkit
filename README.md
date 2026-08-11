@@ -514,7 +514,7 @@ The public surface is the provider, the `useOpenAIRealtimeToolkit()` hook, and `
 
 | Import | What it is |
 | --- | --- |
-| `OpenAIRealtimeToolkitProvider` | Provider and entry point. Props: `{ appId?, appSecret?, openAIApiKey?, instructions?, voice?, speed?, model?, localTurnHandling?: { enabled?, config? } }`. Omitting `appId` / `appSecret` falls back to the library's default Switchboard credentials, and omitting `openAIApiKey` to the shared test key — see [Credentials](#credentials). |
+| `OpenAIRealtimeToolkitProvider` | Provider and entry point. Props: `{ appId?, appSecret?, openAIApiKey?, instructions?, voice?, speed?, model?, localTurnHandling?: { enabled?, config? } }`. The credentials are optional — see [Credentials](#credentials). |
 | `useOpenAIRealtimeToolkit()` | The main hook — everything you drive the assistant with ([below](#the-useopenairealtimetoolkit-hook)). |
 | `useTool(tool)` | Register a tool for the model to call, scoped to the component. See [Tool calling](#tool-calling). |
 | `OpenAIRealtimeToolkitTool` | Tool shape: `{ name, description, parameters?, handler }`. `parameters` (JSON Schema) is optional — omit for a no-arg tool. |
