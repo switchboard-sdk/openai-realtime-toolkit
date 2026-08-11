@@ -5,15 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.2] - 2026-08-11
 
 ### Changed
 
-- `appId` / `appSecret` are now optional: the library ships with default Switchboard
-  credentials and falls back to them, so the provider doesn't require your own until
-  production. Passing them still overrides the defaults; passing a blank one still throws.
-- The example app no longer hardcodes Switchboard credentials — it relies on the
-  bundled pair, with the props left commented out for wiring in your own.
+- `appId` / `appSecret` are now optional: the library ships with default test Switchboard
+  credential, so the provider doesn't require your own until
+  production. Passing them still overrides the defaults.
 
 ## [1.0.1] - 2026-08-07
 
