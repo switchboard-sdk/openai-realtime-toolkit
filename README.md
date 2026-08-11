@@ -610,13 +610,6 @@ throws on mount. (Omitting them entirely is fine — that's the default-credenti
 demonstrates an OpenAI Realtime voice assistant with on-device turn detection,
 noise presets, and a tool call.
 
-> [!TIP]
-> The example passes no credentials at all — it runs on the library's default Switchboard
-> credentials and the shared OpenAI test key, so there's nothing to configure: no
-> Switchboard account and no OpenAI key needed. See [Credentials](#credentials) for why
-> those aren't for production, and [`example/README.md`](example/README.md#1-credentials)
-> for wiring in your own.
-
 **Install the repo root first.** The example consumes the library via `file:..`, and the
 package's `main`/`types` resolve to the built `dist/`, which the root's `npm install`
 produces via `prepare`:
