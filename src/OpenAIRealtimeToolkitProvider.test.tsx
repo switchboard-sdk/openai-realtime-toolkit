@@ -138,6 +138,13 @@ describe('credential validation', () => {
     errSpy.mockRestore()
   })
 
+  it('accepts missing Switchboard credentials — the library falls back to its own', () => {
+    expect(() => renderProvider({ appId: undefined, appSecret: undefined })).not.toThrow()
+    expect(openAIRealtimeToolkit.initialize).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: undefined, appSecret: undefined })
+    )
+  })
+
   it('accepts a missing openAIApiKey — the key is optional', () => {
     expect(() => renderProvider({ openAIApiKey: undefined })).not.toThrow()
     expect(openAIRealtimeToolkit.initialize).toHaveBeenCalledWith(

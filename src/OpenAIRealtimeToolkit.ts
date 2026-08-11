@@ -6,6 +6,7 @@ import { createLocalTurnController, type LocalTurnController } from './LocalTurn
 import { resolveBargeIn, resolveTurnDetection } from './turnDetection'
 import { PRESETS, type Preset, type TurnPreset } from './presets'
 import { clampSpeed, DEFAULT_MODEL, DEFAULT_VOICE, SPEED_RANGE, type OpenAIVoice } from './voice'
+import { DEFAULT_APP_ID, DEFAULT_APP_SECRET } from './credentials'
 
 /**
  * Machine-readable cause of an {@link OpenAIRealtimeError}. Branch on this rather
@@ -71,10 +72,14 @@ export type OpenAIRealtimeErrorListener = (error: OpenAIRealtimeError) => void
 
 /** Credentials for {@link OpenAIRealtimeToolkit.initialize}. */
 export interface OpenAIRealtimeToolkitInitializeOptions {
-  /** Switchboard app ID (console.switchboard.audio). */
-  appId: string
-  /** Switchboard app secret. */
-  appSecret: string
+  /**
+   * Switchboard app ID (console.switchboard.audio). Optional for development —
+   * omitted, the toolkit falls back to the shared default credentials it ships
+   * with. Pass your own in production.
+   */
+  appId?: string
+  /** Switchboard app secret. Optional, with the same fallback as {@link appId}. */
+  appSecret?: string
   /**
    * Your OpenAI API key, used by the OpenAI Realtime node. Optional while you're
    * trying the toolkit out; required for an app you ship.
@@ -318,13 +323,15 @@ export function createOpenAIRealtimeToolkit() {
       return
     }
     initError = null
-    // Fail loudly on missing/blank Switchboard credentials — the SDK rejects them
-    // asynchronously (via license validation), so without these guards a config
-    // typo fails silently.
-    if (!options.appId || options.appId.trim() === '') {
+    // Omitted credentials fall back to the demo pair; a blank one is a config
+    // typo, and the SDK rejects those asynchronously (via license validation),
+    // so it'd fail silently without this guard.
+    const appId = options.appId ?? DEFAULT_APP_ID
+    const appSecret = options.appSecret ?? DEFAULT_APP_SECRET
+    if (appId.trim() === '') {
       throw new Error('appId is required')
     }
-    if (!options.appSecret || options.appSecret.trim() === '') {
+    if (appSecret.trim() === '') {
       throw new Error('appSecret is required')
     }
     const openAIApiKey = options.openAIApiKey?.trim() ?? ''
@@ -346,8 +353,8 @@ export function createOpenAIRealtimeToolkit() {
     // Native SDK survives JS reloads — skip re-init if already initialized.
     if (c.getValue('switchboard', 'isInitialized').result !== true) {
       const res = c.callAction('switchboard', 'initialize', {
-        appID: options.appId,
-        appSecret: options.appSecret,
+        appID: appId,
+        appSecret,
         extensions: {
           Silero: {},
           Onnx: {},

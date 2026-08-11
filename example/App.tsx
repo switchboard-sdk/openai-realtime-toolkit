@@ -30,11 +30,14 @@ import {
 import { colors } from './colors';
 
 // ── Credentials ──────────────────────────────────────────────────────────────
-// Get your Switchboard credentials at https://console.switchboard.audio.
-const SWITCHBOARD_APP_ID = '6a75f93fc9ccd4a075fa1669';
-const SWITCHBOARD_APP_SECRET = '28b7400732e5dd15e7297764b9cf4d50cc9ec92d';
+// The library ships with default Switchboard credentials, so this demo passes
+// none. For production, use your own — get them (free) at
+// https://console.switchboard.audio, then uncomment these and the two provider
+// props below.
+// const SWITCHBOARD_APP_ID = 'YOUR_APP_ID';
+// const SWITCHBOARD_APP_SECRET = 'YOUR_APP_SECRET';
 
-// No `openAIApiKey` is passed below, so the demo runs on a shared test key that's
+// No `openAIApiKey` is passed below either, so the demo runs on a shared test key that's
 // rate-limited and rotated without notice — fine for trying the toolkit out,
 // never for an app you ship. To use your own key: copy `.env.example` to `.env`,
 // set OPENAI_API_KEY there, then uncomment the import and the provider prop.
@@ -50,8 +53,8 @@ export default function App(): React.JSX.Element {
       {/* On-device turn handling starts off; toggle it at runtime via the hook.
           `config` seeds its tuning for when it's enabled. */}
       <OpenAIRealtimeToolkitProvider
-        appId={SWITCHBOARD_APP_ID}
-        appSecret={SWITCHBOARD_APP_SECRET}
+        // appId={SWITCHBOARD_APP_ID}
+        // appSecret={SWITCHBOARD_APP_SECRET}
         // openAIApiKey={OPENAI_API_KEY}
         instructions={INSTRUCTIONS}
         localTurnHandling={{
