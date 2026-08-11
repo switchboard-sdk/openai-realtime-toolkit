@@ -6,7 +6,7 @@ import { createLocalTurnController, type LocalTurnController } from './LocalTurn
 import { resolveBargeIn, resolveTurnDetection } from './turnDetection'
 import { PRESETS, type Preset, type TurnPreset } from './presets'
 import { clampSpeed, DEFAULT_MODEL, DEFAULT_VOICE, SPEED_RANGE, type OpenAIVoice } from './voice'
-import { DEFAULT_APP_ID, DEFAULT_APP_SECRET } from './credentials'
+import { DEFAULT_SWITCHBOARD_APP_ID, DEFAULT_SWITCHBOARD_APP_SECRET } from './credentials'
 
 /**
  * Machine-readable cause of an {@link OpenAIRealtimeError}. Branch on this rather
@@ -326,8 +326,8 @@ export function createOpenAIRealtimeToolkit() {
     // Omitted credentials fall back to the demo pair; a blank one is a config
     // typo, and the SDK rejects those asynchronously (via license validation),
     // so it'd fail silently without this guard.
-    const appId = options.appId ?? DEFAULT_APP_ID
-    const appSecret = options.appSecret ?? DEFAULT_APP_SECRET
+    const appId = options.appId ?? DEFAULT_SWITCHBOARD_APP_ID
+    const appSecret = options.appSecret ?? DEFAULT_SWITCHBOARD_APP_SECRET
     if (appId.trim() === '') {
       throw new Error('appId is required')
     }
