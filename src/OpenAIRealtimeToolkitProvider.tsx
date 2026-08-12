@@ -135,12 +135,19 @@ function asRealtimeError(err: unknown, fallbackCode: OpenAIRealtimeErrorCode): O
   )
 }
 
-/** Props for {@link OpenAIRealtimeToolkitProvider}. The Switchboard credentials are required; the rest seed initial state. */
+/**
+ * Props for {@link OpenAIRealtimeToolkitProvider}. All are optional: the credentials
+ * replace the defaults the library ships with, and the rest seed initial state.
+ */
 export interface OpenAIRealtimeToolkitProviderProps {
-  /** Switchboard app ID (console.switchboard.audio). */
-  appId: string
-  /** Switchboard app secret. */
-  appSecret: string
+  /**
+   * Switchboard app ID (console.switchboard.audio). Optional for development —
+   * omit it and the toolkit uses the shared default credentials it ships with.
+   * Pass your own in production.
+   */
+  appId?: string
+  /** Switchboard app secret. Optional, with the same fallback as {@link appId}. */
+  appSecret?: string
   /**
    * Your OpenAI API key, used by the OpenAI Realtime node. Optional while you're
    * trying the toolkit out; required for an app you ship.
@@ -181,10 +188,12 @@ export interface OpenAIRealtimeToolkitProviderProps {
  */
 export function OpenAIRealtimeToolkitProvider(props: OpenAIRealtimeToolkitProviderProps) {
   const { appId, appSecret, openAIApiKey, children } = props
-  if (!appId?.trim()) {
+  // Omitting a credential is fine (the bundled default pair takes over); passing a
+  // blank one is a config mistake worth surfacing immediately.
+  if (appId !== undefined && !appId.trim()) {
     throw new Error('OpenAIRealtimeToolkitProvider: appId is required')
   }
-  if (!appSecret?.trim()) {
+  if (appSecret !== undefined && !appSecret.trim()) {
     throw new Error('OpenAIRealtimeToolkitProvider: appSecret is required')
   }
 

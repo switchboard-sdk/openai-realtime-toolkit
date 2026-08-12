@@ -7,16 +7,16 @@ Native 0.86, new architecture.
 
 ## 1. Credentials
 
-**Nothing to configure to run the example.** It ships with demo Switchboard
-credentials (`SWITCHBOARD_APP_ID` / `SWITCHBOARD_APP_SECRET` in
-[`App.tsx`](App.tsx)), and those credentials have an OpenAI API key associated
-with them for testing — so the app passes no `openAIApiKey` of its own.
+The library ships with default Switchboard credentials, and those have an OpenAI API
+key associated with them for testing — so the app passes no `appId`, `appSecret`,
+or `openAIApiKey` of its own.
 
-**For anything real, use your own keys.** The demo credentials are rate-limited
-and **rotated without notice**. Get Switchboard credentials from
-[console.switchboard.audio](https://console.switchboard.audio).
+**For production, use your own keys.** The shared OpenAI test key is rate-limited
+and **rotated without notice**. For Switchboard, get your own credentials from
+[console.switchboard.audio](https://console.switchboard.audio), then uncomment
+the `appId` / `appSecret` props in [`App.tsx`](App.tsx) and fill them in.
 
-To use **your own key**, copy the template and fill it in — the app reads it from
+To use **your own OpenAI key**, copy the template and fill it in — the app reads it from
 `@env` (via `react-native-dotenv`), so it goes in a `.env` file, not in source:
 
 ```sh

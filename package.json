@@ -1,6 +1,6 @@
 {
   "name": "@synervoz/openai-realtime-toolkit",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "React Native library for on-device audio AI pipelines (VAD, turn detection, ONNX) powered by the Switchboard SDK.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

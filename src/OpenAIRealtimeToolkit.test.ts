@@ -8,6 +8,7 @@ import {
 } from './OpenAIRealtimeToolkit'
 import NativeOpenAIRealtimeToolkit from './NativeOpenAIRealtimeToolkit'
 import { makeRpcResponse } from './test-helpers'
+import { DEFAULT_SWITCHBOARD_APP_ID, DEFAULT_SWITCHBOARD_APP_SECRET } from './credentials'
 
 // Same-instance access to the manual mock's helpers (see NativeModuleRPCClient
 // test for why importing the mock by path would be a second instance).
@@ -102,6 +103,14 @@ describe('initialize', () => {
       SmartTurn: {},
       OpenAI: { apiKey: 'sk-openai' },
     })
+  })
+
+  it('falls back to the default Switchboard credentials when none are passed', () => {
+    const ea = createOpenAIRealtimeToolkit()
+    ea.initialize({ openAIApiKey: 'sk-openai' })
+    const params = commandFor('initialize').params.params
+    expect(params.appID).toBe(DEFAULT_SWITCHBOARD_APP_ID)
+    expect(params.appSecret).toBe(DEFAULT_SWITCHBOARD_APP_SECRET)
   })
 
   it('is idempotent — a second initialize does not re-send', () => {

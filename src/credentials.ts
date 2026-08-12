@@ -1,0 +1,8 @@
+/**
+ * Switchboard credentials the toolkit falls back to when none are passed to
+ * `OpenAIRealtimeToolkitProvider`. They're shared defaults — fine to build and
+ * test against, but create your own at https://console.switchboard.audio for
+ * production.
+ */
+export const DEFAULT_SWITCHBOARD_APP_ID = '6a75f93fc9ccd4a075fa1669'
+export const DEFAULT_SWITCHBOARD_APP_SECRET = '28b7400732e5dd15e7297764b9cf4d50cc9ec92d'
