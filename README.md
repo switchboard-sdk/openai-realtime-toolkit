@@ -1,629 +1,154 @@
-# openai-realtime-toolkit
+# Voice agents in React Native
 
-openai-realtime-toolkit is a React Native SDK that provides easy integration with OpenAI's voice-to-voice agents, along with on-device VAD, local turn detection, barge-in handling, and tool calling as first-class primitives for building voice-first agentic applications. Powered by the [Switchboard SDK](https://switchboard.audio).
+A voice agent is something your users speak to, that answers in speech, and that can reach into your app and act while it is talking, like booking an appointment or changing the screen. The conversation is the interface, and the tool calls it makes are what turn talk into action.
 
-## Platforms
+`@synervoz/openai-realtime-toolkit` is the layer that makes this work on a phone. You get one provider and two hooks. Underneath, it owns the microphone and speaker, holds the Realtime session, and switches on each platform's echo cancellation. It runs voice-activity detection and a semantic turn model on the device so that turn-taking holds up in a noisy room. It sequences barge-in so interruptions land right away, and it routes tool calls into your own functions.
 
-| Platform | Status      |
-| -------- | ----------- |
-| iOS      | Supported   |
-| Android  | Supported   |
-
-## Install
+| Platform | Status    |
+| -------- | --------- |
+| iOS      | Supported |
+| Android  | Supported |
 
 ```sh
 npm install @synervoz/openai-realtime-toolkit
 ```
 
-### Requirements
+## What the API leaves out
 
-| Requirement      | Minimum                     |
-| ---------------- | --------------------------- |
-| React Native     | 0.76+                       |
-| New Architecture | Required (enabled)          |
-| iOS              | 13.4+                       |
-| Android NDK      | 29 — see [Android](#android) |
-| Node.js          | 22+                         |
+OpenAI's Realtime API made the agent itself easy. Speech goes up, speech comes back, the model handles what happens in between and calls your functions along the way. What it hands you is an audio stream. Turning that stream into something people can hold a conversation with is the work that sits around it:
 
-openai-realtime-toolkit is a **C++ TurboModule** and requires the **[New Architecture](https://reactnative.dev/architecture/landing-page)**. It works in both React Native CLI and Expo apps — but not in Expo Go, since it ships native code.
+- **Capture and playback.** Pulling audio off the microphone and pushing the reply out to the speaker, at matching sample rates, through the right audio route.
+- **The connection underneath.** Opening and holding a WebSocket session, streaming captured audio up in buffers, playing back what streams down, and recovering when it drops.
+- **The microphone hearing the speaker.** On speakerphone the agent picks up its own voice and starts answering itself, until acoustic echo cancellation subtracts it back out.
+- **Knowing when a turn ended.** Telling a finished sentence apart from a pause in the middle of one.
+- **Getting out of the way.** Going quiet the instant someone talks over the agent, rather than a couple of seconds later.
 
-### iOS
+None of that ships with the API. It is all native work, and it is where voice projects stall. This toolkit is that layer. You pick a preset that matches the environment, and it handles the rest.
 
-From **your app's** `ios/` directory:
+## The easy part
 
-```sh
-cd ios && pod install
-```
-
-Add a microphone usage string to your app's `Info.plist` (required — without it the
-app crashes when the mic is requested):
-
-```xml
-<key>NSMicrophoneUsageDescription</key>
-<string>Used for the voice assistant.</string>
-```
-
-### Android
-
-**There are two paths here — pick the one that matches your app:**
-
-- **Expo** → skip this section entirely. The [config plugin](#expo) applies all four
-  steps below for you during `prebuild`. Go to [Expo](#expo).
-- **React Native CLI** (bare React Native) → apply the four steps below to your app by
-  hand.
-
-openai-realtime-toolkit's C++ TurboModule is compiled in your app's native build, so your
-app needs to (a) know the Switchboard Maven repo, (b) enable Prefab, and (c) build with
-**NDK 29**. All three are required.
-
-**1. Maven repo.** Add it to your app's root **`android/build.gradle`** (public, no
-credentials). Declare it at the project level — React Native's Gradle plugin adds
-its own repos the same way, so a settings-level `dependencyResolutionManagement`
-block would be ignored under Gradle's default `PREFER_PROJECT` mode:
-
-```groovy
-allprojects {
-    repositories {
-        maven { url "https://s3.amazonaws.com/synervoz-android-maven-repository" }
-    }
-}
-```
-
-**2. Prefab.** Enable it in your app's **`android/app/build.gradle`**:
-
-```groovy
-android {
-    buildFeatures {
-        prefab true
-    }
-}
-```
-
-**3. NDK 29.** Raise `ndkVersion` in the `buildscript { ext { … } }` block of your app's
-root **`android/build.gradle`** — the React Native template pins 27.x, which does not
-work:
-
-```groovy
-buildscript {
-    ext {
-        ndkVersion = "29.0.14206865"   // not the template's 27.x — see below
-        // …
-    }
-}
-```
-
-Install it once if you don't have it:
-
-```sh
-"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865"
-```
-
-The Switchboard native libraries need NDK 29's `libc++_shared.so`. On 27.x the app builds
-and installs fine but fails at launch with `UnsatisfiedLinkError: cannot locate symbol
-"__cxa_init_primary_exception"`.
-
-**4. Drop 32-bit x86.** The Switchboard libraries ship `arm64-v8a`, `armeabi-v7a` and
-`x86_64` — there is no 32-bit `x86` slice, but the React Native template's
-`reactNativeArchitectures` asks for one. Remove it in your app's
-**`android/gradle.properties`**:
-
-```properties
-reactNativeArchitectures=armeabi-v7a,arm64-v8a,x86_64
-```
-
-`run-android` and `expo run:android` build only the connected device's ABI, so they pass
-either way — a release build, CI or EAS is where it surfaces:
-
-```
-Execution failed for task ':app:configureCMakeDebug[x86]'.
-> [CXX1210] … debug|x86 : No compatible library found [//SwitchboardSmartTurn/SwitchboardSmartTurn]
-```
-
-Then build:
-
-```sh
-npx react-native run-android
-```
-
-> **Confirming the NDK** (either path): every Android build prints the NDK it used, so
-> you can check the right one landed:
->
-> ```
-> [ExpoRootProject]  - ndk:  29.0.14206865
-> ```
-
-### Expo
-
-openai-realtime-toolkit works in an Expo app, but because it ships native code (a C++
-TurboModule + the Switchboard frameworks) it can **not** run in Expo Go — you
-need a [development build](https://docs.expo.dev/develop/development-builds/introduction/).
-
-- **New architecture is required** — on by default in Expo SDK ≥ 52.
-- **SDK version** — needs React Native ≥ 0.76 (Expo SDK ≥ 52). Developed and
-  tested against RN 0.86, i.e. **Expo SDK 57**: an exact RN match, so there's no
-  TurboModule codegen mismatch. Older SDKs down to 52 should also work.
-
-**1. Install.**
-
-```sh
-npx expo install @synervoz/openai-realtime-toolkit
-```
-
-**2. Add the config plugin to `app.json`** — do this *before* prebuilding, because
-prebuild is what applies it. It declares the Switchboard Maven repo, enables Prefab,
-raises `ndkVersion` to 29, and drops the unsupported 32-bit `x86` architecture from
-`reactNativeArchitectures` in your app's own Android build files — the wiring Expo can't
-do on its own (`expo-build-properties` has no `ndkVersion` option), and which the React
-Native CLI autolinking path can't land early enough under prebuild. The microphone string and
-permissions are handled by built-ins (below), so the plugin takes no options. It is only required
-for Android — every setting it writes is a Gradle one, so on an iOS-only project it does nothing:
-
-```json
-{
-  "expo": {
-    "plugins": ["@synervoz/openai-realtime-toolkit"],
-    "ios": {
-      "infoPlist": {
-        "NSMicrophoneUsageDescription": "Used for the voice assistant."
-      }
-    }
-  }
-}
-```
-
-`NSMicrophoneUsageDescription` is required for the iOS mic prompt. Android
-permissions (`RECORD_AUDIO`, `INTERNET`, `MODIFY_AUDIO_SETTINGS`) ship in the
-library's manifest and merge in automatically — nothing to add.
-
-**3. Prebuild, then build and launch the dev build.**
-
-```sh
-npx expo prebuild            # generates ios/ + android/; iOS runs pod install (fetches the frameworks)
-npx expo run:ios             # or: npx expo run:android
-```
-
-Add `-p ios` / `-p android` to prebuild for a single platform. If you prebuilt *before*
-adding the plugin, run `npx expo prebuild` again so the Android wiring lands — otherwise
-the generated `android/` has no Maven repo, no Prefab and NDK 27, and the app crashes at
-launch (see [Android](#android)).
-
-## Privacy (App Store)
-
-openai-realtime-toolkit bundles its own iOS [privacy manifest](https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api),
-so the one Apple-flagged API it uses (`FileTimestamp`, from loading model files) is
-already declared for you — nothing to do.
-
-At the **app** level you still handle:
-
-- **`NSMicrophoneUsageDescription`** in `Info.plist` (see [iOS install](#ios)) — the mic
-  prompt string. (The microphone isn't a privacy-manifest API; this string is all it needs.)
-- **App Store privacy labels** — audio is streamed to the **OpenAI Realtime API**, so
-  disclose that (e.g. "Audio Data"). openai-realtime-toolkit itself stores nothing.
-
-## Credentials
-
-Every credential the provider takes is **optional** — it works out of the box, and each
-one you pass overrides a built-in default.
-
-- **Switchboard** — `appId` / `appSecret`, optional for testing and development: the
-  library ships with shared default credentials it falls back to. For production, sign up
-  at [console.switchboard.audio](https://console.switchboard.audio/register) (free) and
-  create an app to get its `APP_ID` and `APP_SECRET`.
-- **OpenAI** — a Realtime-capable key from
-  [platform.openai.com](https://platform.openai.com/api-keys). Omit `openAIApiKey` and the
-  session runs on a shared **test key** instead.
-
-> [!WARNING]
-> **The OpenAI test key is for evaluation only.** It's shared, rate-limited, and **rotated
-> without notice** — an app relying on it stops working the moment it turns over, and you
-> get no quota, billing, or usage control over it. Pass your own `openAIApiKey` for
-> anything you ship; the toolkit `console.warn`s at init when no key is set. The bundled
-> Switchboard credentials are fine to build and test against, but use your own `appId` /
-> `appSecret` in production so the app runs under your own Switchboard account.
-
-> [!NOTE]
-> Your Switchboard `APP_ID` and `APP_SECRET` are **safe to bundle in your application**. They
-> function like a publishing key and are intended to be distributed with your app. Your
-> **OpenAI key is not** — keep it out of source (e.g. `react-native-dotenv`), and for a
-> shipped app mint an ephemeral key server-side rather than embedding a standing one.
-
-## Usage
-
-Wrap your app in `OpenAIRealtimeToolkitProvider`, then drive it from
-any component with the `useOpenAIRealtimeToolkit()` hook. `start()` requests the mic and
-builds the voice graph — microphone → OpenAI.Realtime → speaker, with optional on-device
-turn detection and barge-in, and hardware echo cancellation (VPIO):
+Wrap your app, call the hook, register a tool, press the button.
 
 ```tsx
-import React from 'react';
-import { Text, TouchableOpacity, View } from 'react-native';
 import {
   OpenAIRealtimeToolkitProvider,
   useOpenAIRealtimeToolkit,
   useTool,
-} from '@synervoz/openai-realtime-toolkit';
+} from '@synervoz/openai-realtime-toolkit'
 
 export default function App() {
   return (
-    // appId / appSecret are optional — omit them to use the library's defaults.
-    <OpenAIRealtimeToolkitProvider
-      appId="YOUR_SWITCHBOARD_APP_ID"
-      appSecret="YOUR_SWITCHBOARD_APP_SECRET"
-      openAIApiKey="YOUR_OPENAI_API_KEY"
-      instructions="You are a terse, friendly voice assistant.">
+    <OpenAIRealtimeToolkitProvider instructions="You are a terse, friendly voice assistant.">
       <Screen />
     </OpenAIRealtimeToolkitProvider>
-  );
+  )
 }
 
 function Screen() {
-  const { isRunning, connectionStatus, error, start, stop } = useOpenAIRealtimeToolkit();
+  const { isRunning, start, stop } = useOpenAIRealtimeToolkit()
 
-  // A tool the model can call; its return value is sent back automatically.
+  // Something the agent can actually do. Ask it the time.
   useTool({
     name: 'get_time',
     description: 'Get the current time.',
-    parameters: { type: 'object', properties: {} },
     handler: async () => ({ time: new Date().toLocaleTimeString() }),
-  });
+  })
 
   return (
-    <View style={{ flex: 1, padding: 24, gap: 16 }}>
-      <TouchableOpacity onPress={isRunning ? stop : start}>
-        <Text>{isRunning ? 'Stop' : 'Start talking'}</Text>
-      </TouchableOpacity>
-      <Text>Connection: {connectionStatus}</Text>
-      {!!error && <Text>Error: {error.message}</Text>}
-    </View>
-  );
+    <TouchableOpacity onPress={isRunning ? stop : start}>
+      <Text>{isRunning ? 'Stop' : 'Start talking'}</Text>
+    </TouchableOpacity>
+  )
 }
 ```
 
-That's the whole app — `start()` handles mic permission and connects, and the model can
-call the `get_time` tool (try asking it the time). Drop all three credential lines and it
-still runs, on the library's default Switchboard credentials and the shared OpenAI test key
-([above](#credentials)) — put your own back for production. Render `error.message`, as above: a rejected API key or a denied mic shows up
-there ([details](#the-useopenairealtimetoolkit-hook)).
-Layout is yours — the snippet's `View` keeps it minimal. Turn-detection tuning and styling
-are opt-in; see below and [`example/App.tsx`](example/App.tsx) for the fuller version.
+That is a working voice agent, tool call included. `start()` requests the microphone and builds the audio graph, wiring the microphone to OpenAI Realtime to the speaker with echo cancellation already on. `useTool` puts a function in the model's hands, and its return value goes back automatically. There are no credentials in the snippet either, so it runs on shared defaults until you swap in your own.
 
-### Lifecycle & placement
+Ten minutes in, at your desk, it feels finished.
 
-Mount `OpenAIRealtimeToolkitProvider` **once, at your app root** (above your navigator). It
-isn't unmounted by navigation or by the app going to the background, so the
-assistant keeps running across screens and the exposed state stays consistent —
-call the `useOpenAIRealtimeToolkit()` hook from any screen.
+## Meeting the real world
 
-- `stop()` pauses the engine but keeps it warm, so a later `start()` resumes fast.
-- `release()` frees the engine's native resources (audio session, models); the
-  next `start()` rebuilds it.
-- The provider **doesn't** stop or release on unmount — the engine's lifecycle is
-  yours to drive explicitly.
-- **Background operation** (mic while the app is backgrounded) needs native setup:
-  the iOS `audio` background mode in `Info.plist`, and an Android microphone
-  foreground service. Without it the OS suspends audio when you leave the app.
+Every use case wants different tuning, because the environment differs and so does how much interruption people will put up with. You usually discover that through the same handful of complaints:
 
-### Runtime settings
+- **It cuts you off mid-sentence.** You pause to think, "so what I'm looking for is, uh," and the agent treats the pause as its cue and answers a question you had not finished asking.
+- **It answers things you never said.** In a café, someone at the next table laughs or the espresso machine goes off, and the agent starts talking.
+- **It talks over you.** You try to interrupt a long, wrong answer, and it keeps going for another second or two before it notices.
 
-`instructions`, the voice settings, and turn handling all come off the
-`useOpenAIRealtimeToolkit()` hook and can also be seeded as **props** on the provider.
-Changes through the hook apply live, without dropping the OpenAI session (the two
-exceptions are called out below).
+These are not defects in the model. They come back to the one piece the API leaves out: turn detection. Out of the box, OpenAI makes that call on its own servers, a step removed from the microphone, and gives you one setting to adjust. Move that decision onto the phone and it becomes instant, and tunable for the room your users are actually in. One flag turns it on:
 
 ```tsx
-const { instructions, setInstructions, localTurnHandling } = useOpenAIRealtimeToolkit();
-
-localTurnHandling.enabled;            // on-device turn detection vs OpenAI's server_vad
-localTurnHandling.setEnabled(true);
+const { localTurnHandling } = useOpenAIRealtimeToolkit()
+localTurnHandling.setEnabled(true)
 ```
 
-New to turn detection? Start at [How turn detection works](#how-turn-detection-works) —
-it explains the pipeline before the knobs.
+Now turn detection runs locally. It works in two stages, with a separate fast path for interruptions.
 
-#### Voice, speed, and model
+- **Stage 1 asks whether anyone is speaking.** Voice-activity detection runs on the device, so the answer is immediate. Sound above your threshold counts as speech, and the threshold is yours, so the conversation at the next table can stop registering as speech at all.
+- **Stage 2 asks whether they finished.** A semantic model scores what you said from 0 to 1 for how complete a thought it is. "What's the weather in" scores low. "What's the weather in Berlin" scores high. Same pause, different meaning.
+- **Barge-in is the fast path.** The moment stage 1 hears you start, the agent's in-flight reply ducks in volume, then pauses, and can cancel outright, each on a clock you set. Ducking first is what makes an interruption feel natural, since the agent goes quiet before it goes silent, the way a person trails off when you start talking.
 
-Seed them on the provider:
+```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#1f1f1f','primaryTextColor':'#ececec','primaryBorderColor':'#9a9a9a','lineColor':'#c9c9c9','fontSize':'14px','clusterBkg':'#181818','clusterBorder':'#3a3a3a','edgeLabelBackground':'#2b2b2b'}}}%%
+flowchart TD
+    subgraph kit["@synervoz/openai-realtime-toolkit"]
+      direction TB
+      MIC["AEC-enabled microphone"]
+      TURN["Turn detection"]
+      BARGE["Barge-in"]
+      API["OpenAI Realtime API"]
+      SPK["Speaker"]
+      TOOLS["Your tools"]
+    end
+
+    MIC ==>|"user audio"| API
+    MIC -->|"user audio"| TURN
+    MIC -->|"user audio"| BARGE
+    TURN -.->|"request agent response"| API
+    BARGE -.->|"duck / pause / cancel"| API
+    API ==>|"agent audio"| SPK
+    API -.->|"tool call"| TOOLS
+    TOOLS -.->|"result"| API
+
+    linkStyle 0 stroke:#3ddc84,stroke-width:2.5px
+    linkStyle 5 stroke:#e8e8e8,stroke-width:2.5px
+    linkStyle 1,2 stroke:#3ddc84,stroke-width:2px
+    linkStyle 3,4 stroke:#3ddc84,stroke-width:2px,stroke-dasharray:6 5
+    linkStyle 6,7 stroke:#b9b9b9,stroke-width:2px,stroke-dasharray:6 5
+
+    classDef local fill:#16241c,stroke:#3ddc84,color:#eaffef,stroke-width:1.5px
+    classDef neutral fill:#1f1f1f,stroke:#cfcfcf,color:#ececec,stroke-width:1.5px
+    classDef yours fill:#241c14,stroke:#e0a75e,color:#ffeede,stroke-width:1.5px
+    class TURN,BARGE local
+    class MIC,API,SPK neutral
+    class TOOLS yours
+
+    style kit fill:#121a15,stroke:#3ddc84,stroke-width:1.5px,color:#eaffef
+```
+
+In the diagram, solid lines carry audio and dashed lines carry the on-device decisions and the tool traffic. The two green boxes are where those on-device decisions happen. Switch local turn handling off and both boxes are simply absent, and OpenAI makes the calls at the far end of the audio stream instead. The amber box on the right is your tools. Everything else belongs to the toolkit.
+
+The knobs behind all this exist because rooms differ, and you rarely need to touch them directly. There are three presets, and choosing one is a single line. Most apps stop there:
 
 ```tsx
-<OpenAIRealtimeToolkitProvider voice="marin" speed={1.1} model="gpt-realtime" … />
+import { NOISY_CONFIG } from '@synervoz/openai-realtime-toolkit'
+
+localTurnHandling.setConfig(NOISY_CONFIG)   // QUIET_CONFIG, BALANCED_CONFIG, NOISY_CONFIG
 ```
 
-| Setting | Values | Default | Changing it at runtime |
-| --- | --- | --- | --- |
-| `voice` | `alloy` \| `ash` \| `ballad` \| `cedar` \| `coral` \| `echo` \| `marin` \| `sage` \| `shimmer` \| `verse` | `'cedar'` | `setVoice('marin')` — OpenAI starts a new session for the new voice, so the conversation so far is dropped. |
-| `speed` | `0.5`–`1.5` (out-of-range values are clamped) | `1.0` | `setSpeed(1.25)` — free, applied to the live session. |
-| `model` | any OpenAI Realtime model id, e.g. `'gpt-realtime'` | `'gpt-realtime-2'` | **Not supported.** The model is baked into the engine when it's built, so switching it would mean tearing the engine down — pick it on the provider; the hook exposes it read-only. |
+`QUIET_CONFIG` suits a phone held to your face, `NOISY_CONFIG` handles a café or speakerphone, and `BALANCED_CONFIG` sits between them as the default. Preset changes take effect on the live session, so a switcher in your own settings screen works. When a preset is not enough, you tune by symptom, one knob at a time. See [Turn detection](docs/turn-detection.md) for how the presets differ and the full knob reference.
 
-```tsx
-const { voice, setVoice, speed, setSpeed, model } = useOpenAIRealtimeToolkit();
-```
+## Tools
 
-`VOICES` and `SPEED_RANGE` are exported for building a picker or a slider.
+`useTool` from the quickstart scales up to anything your app can do. It takes typed arguments and can mutate state or call your backend. Register a `set_background_color` tool and "make the background dark blue" repaints the screen while the agent talks. See [Tools](docs/tools.md) for the full example, dynamic tool sets, and what happens when a handler throws.
 
-#### How turn detection works
+## Documentation
 
-Out of the box, OpenAI decides when you've stopped talking (its own `server_vad`).
-Turning `localTurnHandling` on moves that decision **on-device**, where you can tune it:
-
-```tsx
-localTurnHandling.setEnabled(true);   // or <OpenAIRealtimeToolkitProvider localTurnHandling={{ enabled: true }} … />
-```
-
-It runs in two stages:
-
-1. **Voice detection** — the *ear*. It only answers "is someone speaking right now?"
-   Sound louder than `vadThreshold` counts as speech; once it hears `vadSilenceMs` of
-   quiet it reports "speech ended."
-2. **Semantic analysis** — the *listener*. When stage 1 says you went quiet, this stage
-   looks at *what* you said and scores (0–1) how likely it is a **complete thought**
-   rather than a mid-sentence pause ("so I was thinking, uh…"). That score is what the
-   semantic knobs below govern.
-
-The toolkit then decides your turn is over: it holds `pauseToleranceMs` longer (start
-talking again inside that window and the turn simply continues), checks you spoke for at
-least `minInputLengthMs`, and combines that with the semantic score per
-`semanticStrategy`. If it agrees, your audio is **committed** to OpenAI and the reply
-starts. If it doesn't, nothing is sent — `semanticFailTimeoutMs` is the safety net that
-commits anyway when you stay quiet.
-
-Separately, the instant stage 1 hears you start, **barge-in** runs on the AI's in-flight
-reply: duck its volume to `duckGain` immediately, `pauseOutput` after `pauseTimeMs`, and
-cancel the response after `cancelTimeMs` (off by default).
-
-So, in short: the **VAD knobs** decide what counts as speech, the **semantic knobs**
-decide whether a sentence sounds finished, and the **barge-in knobs** decide what happens
-to the AI while you talk over it.
-
-#### Start with a preset
-
-Most apps never need to touch a knob — pick the preset that matches the room:
-
-| Preset | Use it for | How it differs |
-| --- | --- | --- |
-| `QUIET_CONFIG` | Quiet room, phone at your face | Lower `vadThreshold` (`0.4`), short `minInputLengthMs` (`300`), semantic thresholds at `0` (semantic analysis always passes), fast + strong duck → snappiest replies |
-| `BALANCED_CONFIG` | The default; every knob at its default | — |
-| `NOISY_CONFIG` | Café, background chatter, speakerphone | Higher `vadThreshold` (`0.6`), `minInputLengthMs` `1000`, real semantic confidence required (`0.5`), slower/softer duck → far fewer turns triggered by noise |
-
-`localTurnHandling.config` is the tuning (used only while `enabled`). Read a knob as a value;
-write with `setConfig` — a partial patch tweaks, a full knob set selects a preset:
-
-```tsx
-import { QUIET_CONFIG, NOISY_CONFIG } from '@synervoz/openai-realtime-toolkit';
-
-const { config, setConfig } = localTurnHandling;
-
-config.pauseToleranceMs;                        // read one knob (hover shows the doc)
-setConfig({ pauseToleranceMs: 3000 });          // tweak one (keeps the rest)
-setConfig(NOISY_CONFIG);                         // select a preset (overwrites all)
-setConfig({ ...QUIET_CONFIG, pauseToleranceMs: 3000 });  // preset + tweak
-```
-
-Or seed it on the provider: `localTurnHandling={{ enabled: true, config: QUIET_CONFIG }}`.
-Reset from scratch with `DEFAULT_CONFIG` as the base: `setConfig({ ...DEFAULT_CONFIG, ...tweaks })`.
-
-#### Which knob do I reach for?
-
-Match the symptom, then reach for the knob table below for exact ranges.
-
-| It feels like… | Try |
-| --- | --- |
-| "It cuts me off mid-sentence" | Raise `pauseToleranceMs` (e.g. `1500`) so a thinking pause isn't the end of your turn, and/or `vadSilenceMs`. Raise `minSemanticConfidence` so semantic analysis has to be surer you're done. |
-| "It's slow to reply after I stop" | Lower `vadSilenceMs` (e.g. `300`) and `pauseToleranceMs`. Lower the semantic confidences, or `semanticStrategy: 'off'` to skip the semantic stage entirely. |
-| "Background noise / people in the next room trigger it" | `setConfig(NOISY_CONFIG)`. Raise `vadThreshold` (`0.6`–`0.7`) so quiet, distant speech doesn't register, and `minInputLengthMs` so short bursts don't count. |
-| "Short answers ('yes', 'stop') get ignored" | Lower `minInputLengthMs`, or use `semanticStrategy: 'rescue'` so a confident semantic score commits an otherwise-too-short utterance. |
-| "It went quiet — my turn never got answered" | Set `semanticFailTimeoutMs` (e.g. `4000`) so a semantically-rejected turn still commits after that much silence. |
-| "The AI keeps talking over me" | Lower `pauseTimeMs`, lower `duckGain` (`0` mutes it), set a finite `cancelTimeMs` to drop the response outright. |
-| "The AI's answer restarts/repeats after I interrupt" | `commitBehavior: 'finish'` keeps the in-flight response instead of cancelling it. |
-
-#### Config knobs
-
-The advanced reference — each field of `config`. Hover any knob in your editor for the same
-docs; `KNOB_SPECS` carries `min`/`max`/`options` at runtime for building sliders.
-
-**Turn detection** — when is the user's turn over?
-
-Disable-able duration knobs use `Infinity` to mean "off" (`semanticFailTimeoutMs`,
-`pauseTimeMs`, `cancelTimeMs`) — e.g. `setConfig({ cancelTimeMs: Infinity })`.
-
-| Knob | What it does | Default | Range |
-| --- | --- | --- | --- |
-| `vadThreshold` | How loud speech has to be before it counts as talking. Raise it in a noisy room so background sound isn't heard as speech. | `0.5` | `0.0`–`1.0` |
-| `vadSilenceMs` | How long you have to go quiet before voice detection calls your speech over. Lower = snappier, more likely to clip a pause. | `500` | `100`–`6000` |
-| `minInputLengthMs` | Minimum time you must speak for it to count as a turn at all — filters out coughs and short noise bursts. | `600` | `200`–`6000` |
-| `pauseToleranceMs` | Extra silence held *after* voice detection's own hold before ending the turn. Your grace period for thinking mid-sentence. | `0` | `0`–`6000` |
-| `semanticStrategy` | Whether the "did that sound finished?" check is required, optional, or ignored (see below). | `'gate'` | `off` \| `rescue` \| `gate` |
-| `minSemanticConfidence` | Score required for **short** utterances (under `thresholdBreakpointMs`) — short speech gives the check less to go on, so this is usually lower. | `0.01` | `0`–`0.9` |
-| `maxSemanticConfidence` | Score required for **long** utterances. Raise both to be cut off less; lower both to reply sooner. | `0.5` | `0`–`0.9` |
-| `thresholdBreakpointMs` | Where "short" ends and "long" begins, i.e. which of the two confidences applies. | `2000` | `1000`–`6000` |
-| `semanticFailTimeoutMs` | Safety net: if semantic analysis rejected a real-length turn and you stay quiet this long, commit anyway so the assistant still answers. | `Infinity` (off) | `3000`–`6000` |
-
-`semanticStrategy` is how the length check and the semantic score are combined:
-
-| Value | Meaning |
-| --- | --- |
-| `'off'` | Semantic analysis is skipped; long enough (`minInputLengthMs`) is all it takes. Fastest, most likely to cut you off. |
-| `'rescue'` | Long enough **or** sounds finished — a high score rescues an utterance that was too short. |
-| `'gate'` (default) | Long enough **and** sounds finished — a low score vetoes a mid-sentence pause. |
-
-**Barge-in** — how the in-flight AI response is interrupted.
-
-| Knob | What it does | Default | Range |
-| --- | --- | --- | --- |
-| `pauseTimeMs` | How long you have to be talking before the AI stops speaking. Lower it if it talks over you. | `800` | `400`–`6000` |
-| `cancelTimeMs` | How long before the AI's current answer is thrown away rather than just paused. Off by default, so it resumes. | `Infinity` (off) | `2000`–`16000` |
-| `duckGain` | How far the AI's volume drops the moment you start talking (`0` = silent, `1` = unchanged). | `0.3` | `0`–`1` |
-| `duckTimeMs` | How quickly that volume drop fades in and out — too fast can click, too slow feels laggy. | `100` | `0`–`1000` |
-| `commitBehavior` | When your turn commits: `cancel` drops the AI's unfinished answer, `finish` lets it play out. | `'cancel'` | `cancel` \| `finish` |
-
-### Tool calling
-
-Register tools with the `useTool` hook. The handler runs when the model calls the
-tool, and its return value is sent back to the model automatically (throwing
-reports a tool error):
-
-```tsx
-import { useTool } from '@synervoz/openai-realtime-toolkit';
-
-useTool({
-  name: 'set_background_color',
-  description: "Changes the application's background color.",
-  parameters: {
-    type: 'object',
-    properties: { color: { type: 'string' } },
-    required: ['color'],
-  },
-  handler: async ({ color }) => {
-    setBackgroundColor(color);
-    return { success: true, color };
-  },
-});
-```
-
-A handler that throws is reported to the model as a tool error, so the conversation
-continues — the model answers without the result rather than stalling. Nothing about a
-tool call reaches `error`: the model is the one that has to recover, and there'd be
-nothing to clear it afterwards. To watch them anyway, pass `onError` to the provider and
-filter on `code` — `TOOL_HANDLER_FAILED` for a handler that threw,
-`TOOL_RESULT_UNDELIVERED` when the result couldn't reach OpenAI at all (dead session,
-stale call id), `RESPONSE_FAILED` when the model couldn't be resumed. See
-[Errors](#errors).
-
-`useTool` scopes the tool to the component (registers on mount, unregisters on
-unmount, re-registers on `name`/`description`/`parameters` change) and keeps the
-`handler` live across renders — no stale closures. `parameters` is optional (omit
-for a no-arg tool); names must be unique (re-registering a name replaces it).
-
-**Dynamic tool sets.** Since `useTool` follows the rules of hooks (no loops), for
-tools sourced from config or registered outside render use the imperative
-`registerTool(tool)` / `unregisterTool(name)` from `useOpenAIRealtimeToolkit()` —
-you own the lifetime and the handler's closure:
-
-```tsx
-const { registerTool, unregisterTool } = useOpenAIRealtimeToolkit();
-registerTool({ name: 'apply_coupon', description: '…', parameters: {…}, handler });
-unregisterTool('apply_coupon'); // later
-```
-
-See [`example/App.tsx`](example/App.tsx) for the full screen.
-
-## API
-
-The public surface is the provider, the `useOpenAIRealtimeToolkit()` hook, and `useTool` — plus config presets and types.
-
-### Exports
-
-| Import | What it is |
-| --- | --- |
-| `OpenAIRealtimeToolkitProvider` | Provider and entry point. Props: `{ appId?, appSecret?, openAIApiKey?, instructions?, voice?, speed?, model?, localTurnHandling?: { enabled?, config? } }`. The credentials are optional — see [Credentials](#credentials). |
-| `useOpenAIRealtimeToolkit()` | The main hook — everything you drive the assistant with ([below](#the-useopenairealtimetoolkit-hook)). |
-| `useTool(tool)` | Register a tool for the model to call, scoped to the component. See [Tool calling](#tool-calling). |
-| `OpenAIRealtimeToolkitTool` | Tool shape: `{ name, description, parameters?, handler }`. `parameters` (JSON Schema) is optional — omit for a no-arg tool. |
-| `QUIET_CONFIG` / `BALANCED_CONFIG` / `NOISY_CONFIG` / `DEFAULT_CONFIG` | Turn-config presets (full `LocalTurnConfig` sets) for `setConfig(...)`. `DEFAULT_CONFIG` is the base for a from-scratch replace. |
-| `VOICES` / `SPEED_RANGE` | Every selectable voice, and the `{ min, max, default }` the node accepts for `speed` — for building a picker / slider. |
-| `OpenAIRealtimeError` | Every failure the toolkit reports — an `Error` with a machine-readable `code`. See [Errors](#errors). |
-| Types | `LocalTurnConfig`, `OpenAIVoice`, `OpenAIRealtimeErrorCode`, `OpenAIRealtimeToolkitProviderProps`, `OpenAIRealtimeToolkitContextValue`, `LocalTurnHandling`, `OpenAIRealtimeToolkitConnectionStatus`. |
-
-### The `useOpenAIRealtimeToolkit()` hook
-
-```ts
-const {
-  isRunning, error, connectionStatus,        // engine + session status
-  inputTranscription, outputTranscription,   // live You / Assistant transcripts
-  hasMicrophonePermission, requestMicrophonePermission,
-  start, stop, release,                       // engine lifecycle
-  instructions, setInstructions,              // system prompt (applies live)
-  voice, setVoice,                            // AI voice (a change restarts the session)
-  speed, setSpeed,                            // speech speed 0.5–1.5 (applies live)
-  model,                                      // Realtime model id (read-only; set via the provider prop)
-  localTurnHandling,                          // on-device turn detection + barge-in
-  registerTool, unregisterTool,               // dynamic tool sets
-} = useOpenAIRealtimeToolkit();
-```
-
-- **`error` / `connectionStatus`** — see [Errors](#errors) below.
-- **A refused `stop()` leaves `isRunning` true**, with the reason in `error` — the graph is
-  still live and the mic still hot, so the state stays truthful rather than showing a
-  stopped engine. `release()` always tears down regardless, so it remains the way out.
-- **`stop()`** pauses but keeps the engine warm for a fast restart; **`release()`** frees native resources (the next `start()` rebuilds).
-- **`setVoice` / `setSpeed`** — see [Voice, speed, and model](#voice-speed-and-model); `setVoice` drops the session context, `setSpeed` is free. `model` has no setter — it's fixed at provider mount.
-- **`localTurnHandling`** → `{ enabled, setEnabled, config, setConfig }`. Read a knob as `config.x`; write with `setConfig({ x })` (partial = tweak, full set = select a preset). Applies only while `enabled` — see [Runtime settings](#runtime-settings).
-- **`registerTool(tool)` / `unregisterTool(name)`** — imperative escape hatch for dynamic tool sets (add replaces a same-named tool). Prefer `useTool`.
-
-## Errors
-
-Every failure is an `OpenAIRealtimeError`: a real `Error` (so `instanceof` and `.message`
-work) carrying a machine-readable `code`, a `fatal` flag, and sometimes `details`.
-
-Failures are split by **how long they last**, not by where they came from:
-
-- **`error`** — the outstanding failure the app has to act on, or null. A refused SDK init,
-  a denied mic, a refused engine start or stop, a session that won't come up. Durable:
-  it stays until something can clear it, which is `start()`, `stop()`, `release()`, or a
-  session coming up.
-- **`onError`** (provider prop) — called for **every** failure, including the ones that
-  never reach `error` because the session absorbed them and carried on: a tool handler
-  throwing, an undeliverable tool result, a session error during a live session. These
-  are moments, not conditions — nothing would ever clear them, so they aren't state.
-  Route them to your logger. With no `onError` prop they're `console.warn`ed instead,
-  so they don't vanish silently.
-
-```tsx
-<OpenAIRealtimeToolkitProvider {...creds} onError={(e) => Sentry.captureException(e)}>
-```
-
-```tsx
-const { error, connectionStatus } = useOpenAIRealtimeToolkit();
-
-if (error?.code === 'MIC_PERMISSION_DENIED') return <OpenSettingsPrompt />;
-if (error) return <Text>{error.message}</Text>;
-```
-
-| `code` | Meaning |
-| --- | --- |
-| `INIT_FAILED` | The Switchboard SDK refused to initialize (rejected credentials, extension load failure). |
-| `NOT_INITIALIZED` | An action needed the SDK, which never came up. |
-| `MIC_PERMISSION_DENIED` | The user denied microphone access. |
-| `ENGINE_CREATION_FAILED` | The audio graph couldn't be built. |
-| `ENGINE_START_FAILED` | The engine refused to start (audio session unavailable, mic held by another app). |
-| `ENGINE_STOP_FAILED` | The engine refused to stop — still running, mic still hot. |
-| `SESSION_FAILED` | OpenAI reported a session failure (bad key, quota, unknown model, bad tool schema). |
-| `TOOL_HANDLER_FAILED` | A tool handler threw. Already reported to the model. |
-| `TOOL_RESULT_UNDELIVERED` | A tool result never reached OpenAI (dead session, stale call id). |
-| `RESPONSE_FAILED` | The model couldn't be resumed after a tool call. |
-
-`connectionStatus` (`'none' | 'connecting' | 'connected' | 'error'`) tracks the OpenAI
-session and nothing else. It reads `'error'` only when the session itself was attempted
-and refused — and stays there, so the node's reconnect attempts can't make a rejected key
-look like a slow connect; only a session coming up clears it. A `SESSION_FAILED` that
-arrives *during* a live session is non-fatal and leaves it `'connected'`, because the
-conversation still works. Failures that aren't the session's own (a denied mic, a refused
-engine start) leave it `'none'` and report through `error` alone — so render `error`
-first, then fall back to `connectionStatus` for the connection chrome.
-
-A blank Switchboard credential is the one exception to all of this: passing `appId` or
-`appSecret` as an empty string is a caller mistake, not a runtime failure, so the provider
-throws on mount. (Omitting them entirely is fine — that's the default-credentials path.)
-
-## Running the example
-
-[`example/`](example) is a complete RN 0.86 app that consumes the library and
-demonstrates an OpenAI Realtime voice assistant with on-device turn detection,
-noise presets, and a tool call.
-
-**Install the repo root first.** The example consumes the library via `file:..`, and the
-package's `main`/`types` resolve to the built `dist/`, which the root's `npm install`
-produces via `prepare`:
+- [Getting started](docs/getting-started.md) covers install, iOS, Android, Expo, credentials, and App Store privacy.
+- [Turn detection](docs/turn-detection.md) covers the two stages and barge-in in depth, the three presets, tuning by symptom, the full knob reference, and what false turns actually cost.
+- [Tools](docs/tools.md) covers `useTool`, dynamic tool sets, and tool-error handling.
+- [API reference](docs/api-reference.md) covers the provider, the `useOpenAIRealtimeToolkit()` hook, lifecycle, runtime settings, every export, and the error codes.
+- [Example app](example/README.md) is a complete RN app with turn detection, presets, and a tool call.
 
 ```sh
-npm run example:install    # from the repo root: installs + builds here, then installs example/
+npm install @synervoz/openai-realtime-toolkit
 ```
-
-Or by hand:
-
-```sh
-npm install                # repo root — installs deps and builds dist/
-cd example && npm install
-```
-
-See **[example/README.md](example/README.md)** for setup and run instructions
-(credentials, install, iOS device signing, Android).
