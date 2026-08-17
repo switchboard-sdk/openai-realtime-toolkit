@@ -23,7 +23,7 @@ OpenAI's Realtime API made the agent itself easy. Speech goes up, speech comes b
 - **Knowing when a turn ended.** Telling a finished sentence apart from a pause in the middle of one.
 - **Getting out of the way.** Going quiet the instant someone talks over the agent, rather than a couple of seconds later.
 
-None of that ships with the API. It is all native work, and it is where voice projects stall. This toolkit is that layer. You pick a preset that matches the environment, and it handles the rest.
+The Realtime API provides the model and realtime protocol, but production mobile applications still need to solve important audio, device, connection and interaction-layer problems around it. This toolkit is that layer. You pick a preset that matches the environment, and it handles the rest.
 
 ## The easy part
 
@@ -64,7 +64,7 @@ function Screen() {
 
 That is a working voice agent, tool call included. `start()` requests the microphone and builds the audio graph, wiring the microphone to OpenAI Realtime to the speaker with echo cancellation already on. `useTool` puts a function in the model's hands, and its return value goes back automatically. There are no credentials in the snippet either, so it runs on shared defaults until you swap in your own.
 
-Ten minutes in, at your desk, it feels finished.
+That's enough to get a functional voice agent running. The harder tuning questions appear once it leaves your desk.
 
 ## Meeting the real world
 
@@ -74,7 +74,7 @@ Every use case wants different tuning, because the environment differs and so do
 - **It answers things you never said.** In a café, someone at the next table laughs or the espresso machine goes off, and the agent starts talking.
 - **It talks over you.** You try to interrupt a long, wrong answer, and it keeps going for another second or two before it notices.
 
-These are not defects in the model. They come back to the one piece the API leaves out: turn detection. Out of the box, OpenAI makes that call on its own servers, a step removed from the microphone, and gives you one setting to adjust. Move that decision onto the phone and it becomes instant, and tunable for the room your users are actually in. One flag turns it on:
+Many of these problems come back to turn detection and interruption handling. Realtime can handle turn detection server-side; but moving some of those decisions onto the device gives developers another level of latency and environment-specific control. The local turn detection option in openai-realtime-toolkit becomes instant and tunable to your use case. One flag turns it on:
 
 ```tsx
 const { localTurnHandling } = useOpenAIRealtimeToolkit()
@@ -83,7 +83,7 @@ localTurnHandling.setEnabled(true)
 
 Now turn detection runs locally. It works in two stages, with a separate fast path for interruptions.
 
-- **Stage 1 asks whether anyone is speaking.** Voice-activity detection runs on the device, so the answer is immediate. Sound above your threshold counts as speech, and the threshold is yours, so the conversation at the next table can stop registering as speech at all.
+- **Stage 1 asks whether anyone is speaking.** Voice-activity detection runs on the device, so the answer has minimal latency. Sound above your threshold counts as speech, and the threshold is yours, so the conversation at the next table can stop registering as speech at all.
 - **Stage 2 asks whether they finished.** A semantic model scores what you said from 0 to 1 for how complete a thought it is. "What's the weather in" scores low. "What's the weather in Berlin" scores high. Same pause, different meaning.
 - **Barge-in is the fast path.** The moment stage 1 hears you start, the agent's in-flight reply ducks in volume, then pauses, and can cancel outright, each on a clock you set. Ducking first is what makes an interruption feel natural, since the agent goes quiet before it goes silent, the way a person trails off when you start talking.
 
