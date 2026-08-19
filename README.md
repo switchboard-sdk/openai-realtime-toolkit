@@ -1,8 +1,11 @@
 # Voice agents in React Native
 
-A voice agent is something your users speak to, that answers in speech, and that can reach into your app and act while it is talking, like booking an appointment or changing the screen. The conversation is the interface, and the tool calls it makes are what turn talk into action.
+Voice agents combine real-time speech with tool calling: users talk naturally, the model responds in speech, and it can call into your app to take actions, update the UI, or interact with your backend.
 
-`@synervoz/openai-realtime-toolkit` is the layer that makes this work on a phone. You get one provider and two hooks. Underneath, it owns the microphone and speaker, holds the Realtime session, and switches on each platform's echo cancellation. It runs voice-activity detection and a semantic turn model on the device so that turn-taking holds up in a noisy room. It sequences barge-in so interruptions land right away, and it routes tool calls into your own functions.
+`@synervoz/openai-realtime-toolkit` makes that stack easier to build on iOS and Android. One provider and two hooks handle the Realtime session, microphone and speaker I/O, platform echo cancellation, interruptions, and tool calls into your application.
+
+For more control over the audio path, the toolkit can also run voice-activity detection and semantic turn detection locally, enabling low-latency barge-in and environment-specific tuning without requiring every audio decision to happen in the cloud. The result is a production-ready starting point that stays simple at the application layer while giving you control over the real-time audio stack underneath.
+
 
 | Platform | Status    |
 | -------- | --------- |
