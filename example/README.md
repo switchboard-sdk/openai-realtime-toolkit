@@ -59,7 +59,16 @@ npx react-native start --reset-cache
 
 ### iOS
 
-CocoaPods is pinned via this example's [`Gemfile`](Gemfile), so install it with Bundler and run `pod` through `bundle exec`. This avoids the `command not found: pod` you would hit without a global CocoaPods install:
+CocoaPods is pinned via this example's [`Gemfile`](Gemfile), so install it with Bundler and run `pod` through `bundle exec`. This avoids the `command not found: pod` you would hit without a global CocoaPods install.
+
+**Ruby 3.1+ is required.** [`Gemfile.lock`](Gemfile.lock) is resolved with Ruby 3.4 / Bundler 2.6.9, and macOS ships Ruby 2.6 — `bundle install` on the system Ruby fails with `Could not find 'bundler' (2.6.9) required by your Gemfile.lock`. Install a newer Ruby first:
+
+```sh
+brew install ruby@3.4
+export PATH="/opt/homebrew/opt/ruby@3.4/bin:$PATH"   # add to your shell profile to persist
+```
+
+Then, from this `example/` directory (the `Gemfile` is here, not at the repo root):
 
 ```sh
 bundle install                                # one-time: installs the pinned `pod` tool
