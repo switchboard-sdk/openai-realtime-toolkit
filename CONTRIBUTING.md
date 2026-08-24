@@ -12,6 +12,23 @@ npm run format      # Prettier
 `main`/`types` resolve to the built `dist/`; `react-native`/`source` resolve to
 `src/` so Metro uses the TypeScript directly (no prebuild needed in dev).
 
+### Running the example app on iOS
+
+`example/Gemfile.lock` is resolved with **Ruby 3.4** / Bundler 2.6.9. The Ruby that
+ships with macOS is 2.6 and cannot install that Bundler, so use a newer one:
+
+```sh
+brew install ruby@3.4
+export PATH="/opt/homebrew/opt/ruby@3.4/bin:$PATH"
+
+cd example
+bundle install
+cd ios && bundle exec pod install
+```
+
+Run `bundle install` from `example/`, not the repo root — the `Gemfile` lives in
+`example/`.
+
 ### Testing against a real consumer app
 
 [`example/`](example) depends on the checkout directly (`file:..`), so it picks up
