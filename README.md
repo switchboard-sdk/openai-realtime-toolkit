@@ -33,6 +33,7 @@ The Realtime API provides the model and realtime protocol, but production mobile
 Wrap your app, call the hook, register a tool, press the button.
 
 ```tsx
+import { Text, TouchableOpacity } from 'react-native'
 import {
   OpenAIRealtimeToolkitProvider,
   useOpenAIRealtimeToolkit,
@@ -90,43 +91,7 @@ Now turn detection runs locally. It works in two stages, with a separate fast pa
 - **Stage 2 asks whether they finished.** A semantic model scores what you said from 0 to 1 for how complete a thought it is. "What's the weather in" scores low. "What's the weather in Berlin" scores high. Same pause, different meaning.
 - **Barge-in is the fast path.** The moment stage 1 hears you start, the agent's in-flight reply ducks in volume, then pauses, and can cancel outright, each on a clock you set. Ducking first is what makes an interruption feel natural, since the agent goes quiet before it goes silent, the way a person trails off when you start talking.
 
-```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#1f1f1f','primaryTextColor':'#ececec','primaryBorderColor':'#9a9a9a','lineColor':'#c9c9c9','fontSize':'14px','clusterBkg':'#181818','clusterBorder':'#3a3a3a','edgeLabelBackground':'#2b2b2b'}}}%%
-flowchart TD
-    subgraph kit["@synervoz/openai-realtime-toolkit"]
-      direction TB
-      MIC["AEC-enabled microphone"]
-      TURN["Turn detection"]
-      BARGE["Barge-in"]
-      API["OpenAI Realtime API"]
-      SPK["Speaker"]
-      TOOLS["Your tools"]
-    end
-
-    MIC ==>|"user audio"| API
-    MIC -->|"user audio"| TURN
-    MIC -->|"user audio"| BARGE
-    TURN -.->|"request agent response"| API
-    BARGE -.->|"duck / pause / cancel"| API
-    API ==>|"agent audio"| SPK
-    API -.->|"tool call"| TOOLS
-    TOOLS -.->|"result"| API
-
-    linkStyle 0 stroke:#3ddc84,stroke-width:2.5px
-    linkStyle 5 stroke:#e8e8e8,stroke-width:2.5px
-    linkStyle 1,2 stroke:#3ddc84,stroke-width:2px
-    linkStyle 3,4 stroke:#3ddc84,stroke-width:2px,stroke-dasharray:6 5
-    linkStyle 6,7 stroke:#b9b9b9,stroke-width:2px,stroke-dasharray:6 5
-
-    classDef local fill:#16241c,stroke:#3ddc84,color:#eaffef,stroke-width:1.5px
-    classDef neutral fill:#1f1f1f,stroke:#cfcfcf,color:#ececec,stroke-width:1.5px
-    classDef yours fill:#241c14,stroke:#e0a75e,color:#ffeede,stroke-width:1.5px
-    class TURN,BARGE local
-    class MIC,API,SPK neutral
-    class TOOLS yours
-
-    style kit fill:#121a15,stroke:#3ddc84,stroke-width:1.5px,color:#eaffef
-```
+![Audio and on-device decision flow: the AEC-enabled microphone feeds the OpenAI Realtime API plus local turn detection and barge-in, and the API drives the speaker and calls your tools.](https://raw.githubusercontent.com/switchboard-sdk/openai-realtime-toolkit/main/docs/assets/architecture.jpg)
 
 In the diagram, solid lines carry audio and dashed lines carry the on-device decisions and the tool traffic. The two green boxes are where those on-device decisions happen. Switch local turn handling off and both boxes are simply absent, and OpenAI makes the calls at the far end of the audio stream instead. The amber box on the right is your tools. Everything else belongs to the toolkit.
 
@@ -138,19 +103,19 @@ import { NOISY_CONFIG } from '@synervoz/openai-realtime-toolkit'
 localTurnHandling.setConfig(NOISY_CONFIG)   // QUIET_CONFIG, BALANCED_CONFIG, NOISY_CONFIG
 ```
 
-`QUIET_CONFIG` suits a phone held to your face, `NOISY_CONFIG` handles a café or speakerphone, and `BALANCED_CONFIG` sits between them as the default. Preset changes take effect on the live session, so a switcher in your own settings screen works. When a preset is not enough, you tune by symptom, one knob at a time. See [Turn detection](docs/turn-detection.md) for how the presets differ and the full knob reference.
+`QUIET_CONFIG` suits a phone held to your face, `NOISY_CONFIG` handles a café or speakerphone, and `BALANCED_CONFIG` sits between them as the default. Preset changes take effect on the live session, so a switcher in your own settings screen works. When a preset is not enough, you tune by symptom, one knob at a time. See [Turn detection](https://github.com/switchboard-sdk/openai-realtime-toolkit/blob/main/docs/turn-detection.md) for how the presets differ and the full knob reference.
 
 ## Tools
 
-`useTool` from the quickstart scales up to anything your app can do. It takes typed arguments and can mutate state or call your backend. Register a `set_background_color` tool and "make the background dark blue" repaints the screen while the agent talks. See [Tools](docs/tools.md) for the full example, dynamic tool sets, and what happens when a handler throws.
+`useTool` from the quickstart scales up to anything your app can do. It takes typed arguments and can mutate state or call your backend. Register a `set_background_color` tool and "make the background dark blue" repaints the screen while the agent talks. See [Tools](https://github.com/switchboard-sdk/openai-realtime-toolkit/blob/main/docs/tools.md) for the full example, dynamic tool sets, and what happens when a handler throws.
 
 ## Documentation
 
-- [Getting started](docs/getting-started.md) covers install, iOS, Android, Expo, credentials, and App Store privacy.
-- [Turn detection](docs/turn-detection.md) covers the two stages and barge-in in depth, the three presets, tuning by symptom, the full knob reference, and what false turns actually cost.
-- [Tools](docs/tools.md) covers `useTool`, dynamic tool sets, and tool-error handling.
-- [API reference](docs/api-reference.md) covers the provider, the `useOpenAIRealtimeToolkit()` hook, lifecycle, runtime settings, every export, and the error codes.
-- [Example app](example/README.md) is a complete RN app with turn detection, presets, and a tool call.
+- [Getting started](https://github.com/switchboard-sdk/openai-realtime-toolkit/blob/main/docs/getting-started.md) covers install, iOS, Android, Expo, credentials, and App Store privacy.
+- [Turn detection](https://github.com/switchboard-sdk/openai-realtime-toolkit/blob/main/docs/turn-detection.md) covers the two stages and barge-in in depth, the three presets, tuning by symptom, the full knob reference, and what false turns actually cost.
+- [Tools](https://github.com/switchboard-sdk/openai-realtime-toolkit/blob/main/docs/tools.md) covers `useTool`, dynamic tool sets, and tool-error handling.
+- [API reference](https://github.com/switchboard-sdk/openai-realtime-toolkit/blob/main/docs/api-reference.md) covers the provider, the `useOpenAIRealtimeToolkit()` hook, lifecycle, runtime settings, every export, and the error codes.
+- [Example app](https://github.com/switchboard-sdk/openai-realtime-toolkit/blob/main/example/README.md) is a complete RN app with turn detection, presets, and a tool call.
 
 ```sh
 npm install @synervoz/openai-realtime-toolkit
