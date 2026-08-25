@@ -82,7 +82,13 @@ npm run ios
 > `Gemfile.lock` is not committed, so Bundler resolves against whatever Ruby you have — including the
 > one macOS ships. Prefer not to use Bundler? Run `brew install cocoapods`, then plain `pod install`.
 
-`npm run ios` targets the simulator by default. To run on a **physical device** (recommended for real microphone and audio testing), set up code signing first. See React Native's [Running On Device](https://reactnative.dev/docs/running-on-device) guide for background.
+`npm run ios` builds for whatever is currently booted — every booted simulator and any connected physical device. If nothing is booted, it launches the first available simulator. To pin a specific one:
+
+```sh
+npm run ios -- --simulator="iPhone 17 Pro"
+```
+
+A **physical device** is recommended for real microphone and audio testing. See [Set up iOS code signing for your device](#set-up-ios-code-signing-for-your-device) below.
 
 > [!NOTE]
 > **`xcodebuild exited with error code '70'` after the app has already launched.**
