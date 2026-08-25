@@ -30,11 +30,14 @@ This is a **C++ TurboModule** and requires the **[New Architecture](https://reac
 
 ## iOS
 
-From **your app's** `ios/` directory:
+From **your app's** `ios/` directory (Bundler picks up the `Gemfile` React Native generates at your project root):
 
 ```sh
-cd ios && pod install
+bundle install
+bundle exec pod install
 ```
+
+No Bundler in your project? Plain `pod install` works with a global CocoaPods.
 
 Add a microphone usage string to your app's `Info.plist`. This is required, and without it the app crashes when the mic is requested:
 
