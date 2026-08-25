@@ -22,6 +22,7 @@ npm install @synervoz/openai-realtime-toolkit
 | React Native     | 0.76+                      |
 | New Architecture | Required (enabled)         |
 | iOS              | 13.4+                      |
+| CocoaPods        | Required (iOS)             |
 | Android NDK      | 29, see [Android](#android) |
 | Node.js          | 22+                        |
 

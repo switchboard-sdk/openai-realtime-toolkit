@@ -59,24 +59,28 @@ npx react-native start --reset-cache
 
 ### iOS
 
-CocoaPods is pinned via this example's [`Gemfile`](Gemfile), so install it with Bundler and run `pod` through `bundle exec`. This avoids the `command not found: pod` you would hit without a global CocoaPods install.
+Run these from this `example/` directory — the [`Gemfile`](Gemfile) lives here, not at the repo root.
 
-**Ruby 3.1+ is required.** [`Gemfile.lock`](Gemfile.lock) is resolved with Ruby 3.4 / Bundler 2.6.9, and macOS ships Ruby 2.6 — `bundle install` on the system Ruby fails with `Could not find 'bundler' (2.6.9) required by your Gemfile.lock`. Install a newer Ruby first:
+**1. Install the `pod` tool.** CocoaPods is pinned in the `Gemfile`, so you don't need a global install.
 
 ```sh
-brew install ruby@3.4
-export PATH="/opt/homebrew/opt/ruby@3.4/bin:$PATH"   # add to your shell profile to persist
+bundle install
 ```
 
-Then, from this `example/` directory (the `Gemfile` is here, not at the repo root):
+**2. Install the pods.** This downloads the audio xcframeworks.
 
 ```sh
-bundle install                                # one-time: installs the pinned `pod` tool
-cd ios && bundle exec pod install && cd ..    # downloads the audio xcframeworks
+cd ios && bundle exec pod install && cd ..
+```
+
+**3. Build and launch.**
+
+```sh
 npm run ios
 ```
 
-> Prefer a global CocoaPods? Run `gem install cocoapods` (or `brew install cocoapods`), then plain `pod install` works too. The Bundler flow above uses the version this repo is tested with.
+> `Gemfile.lock` is not committed, so Bundler resolves against whatever Ruby you have — including the
+> one macOS ships. Prefer not to use Bundler? Run `brew install cocoapods`, then plain `pod install`.
 
 `npm run ios` targets the simulator by default. To run on a **physical device** (recommended for real microphone and audio testing), set up code signing first. See React Native's [Running On Device](https://reactnative.dev/docs/running-on-device) guide for background.
 

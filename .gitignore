@@ -109,3 +109,6 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Example app: resolved per-machine so any Ruby/Bundler works (see example/README.md)
+example/Gemfile.lock
