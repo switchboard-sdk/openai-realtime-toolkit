@@ -2,6 +2,10 @@
 
 A minimal OpenAI Realtime voice agent built on `@synervoz/openai-realtime-toolkit`: microphone to OpenAI Realtime to speaker, with on-device turn handling and barge-in, live tuning, and a tool call. React Native 0.86, New Architecture.
 
+This README covers running *this* example app. To use the toolkit in **your own app** — install,
+requirements, native setup, credentials, and the API — see
+[Getting started](../docs/getting-started.md) and the other [docs/](../docs) guides.
+
 ## 1. Credentials
 
 The toolkit ships with default audio-engine credentials, and those have an OpenAI API key associated with them for testing, so the app passes no `appId`, `appSecret`, or `openAIApiKey` of its own.
@@ -59,17 +63,36 @@ npx react-native start --reset-cache
 
 ### iOS
 
-CocoaPods is pinned via this example's [`Gemfile`](Gemfile), so install it with Bundler and run `pod` through `bundle exec`. This avoids the `command not found: pod` you would hit without a global CocoaPods install:
+Run these from this `example/` directory — the [`Gemfile`](Gemfile) lives here, not at the repo root.
+
+**1. Install the `pod` tool.** CocoaPods is pinned in the `Gemfile`, so you don't need a global install.
 
 ```sh
-bundle install                                # one-time: installs the pinned `pod` tool
-cd ios && bundle exec pod install && cd ..    # downloads the audio xcframeworks
+bundle install
+```
+
+**2. Install the pods.** This downloads the audio xcframeworks.
+
+```sh
+cd ios && bundle exec pod install && cd ..
+```
+
+**3. Build and launch.**
+
+```sh
 npm run ios
 ```
 
-> Prefer a global CocoaPods? Run `gem install cocoapods` (or `brew install cocoapods`), then plain `pod install` works too. The Bundler flow above uses the version this repo is tested with.
+> `Gemfile.lock` is not committed, so Bundler resolves against whatever Ruby you have — including the
+> one macOS ships. Prefer not to use Bundler? Run `brew install cocoapods`, then plain `pod install`.
 
-`npm run ios` targets the simulator by default. To run on a **physical device** (recommended for real microphone and audio testing), set up code signing first. See React Native's [Running On Device](https://reactnative.dev/docs/running-on-device) guide for background.
+`npm run ios` builds for whatever is currently booted — every booted simulator and any connected physical device. If nothing is booted, it launches the first available simulator. To pin a specific one:
+
+```sh
+npm run ios -- --simulator="iPhone 17 Pro"
+```
+
+A **physical device** is recommended for real microphone and audio testing. See [Set up iOS code signing for your device](#set-up-ios-code-signing-for-your-device) below.
 
 > [!NOTE]
 > **`xcodebuild exited with error code '70'` after the app has already launched.**
@@ -117,11 +140,23 @@ npm run ios -- --device                       # or: npx react-native run-ios --d
 
 ### Android
 
-No Android config is needed. The toolkit's config plugin injects the audio-engine Maven repo and Prefab into the app automatically.
+No Android config is needed here. This example is a bare React Native app, so the audio-engine Maven
+repo, `prefab true`, and the NDK version are already committed in its [`build.gradle`](android/build.gradle)
+and [`app/build.gradle`](android/app/build.gradle).
+
+You need a running emulator or a connected device before building — unlike iOS, the Android CLI
+will not start one for you. Create an emulator in **Android Studio → Device Manager**, or connect a
+phone with USB debugging on. Check what's attached with `adb devices`; it should be listed as
+`device`, not `offline`.
 
 ```sh
-npm run android
+npm run android                     # the attached emulator or device
+npm run android -- --list-devices   # pick one, if several are attached
 ```
+
+In **your own Expo app** you write none of that by hand. Add the toolkit's config plugin to
+`app.json` and `npx expo prebuild` injects the same wiring into the generated `android/`. See
+[Getting started](../docs/getting-started.md#expo).
 
 ## 4. Try it
 
