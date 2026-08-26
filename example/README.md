@@ -2,6 +2,10 @@
 
 A minimal OpenAI Realtime voice agent built on `@synervoz/openai-realtime-toolkit`: microphone to OpenAI Realtime to speaker, with on-device turn handling and barge-in, live tuning, and a tool call. React Native 0.86, New Architecture.
 
+This README covers running *this* example app. To use the toolkit in **your own app** — install,
+requirements, native setup, credentials, and the API — see
+[Getting started](../docs/getting-started.md) and the other [docs/](../docs) guides.
+
 ## 1. Credentials
 
 The toolkit ships with default audio-engine credentials, and those have an OpenAI API key associated with them for testing, so the app passes no `appId`, `appSecret`, or `openAIApiKey` of its own.
@@ -136,11 +140,23 @@ npm run ios -- --device                       # or: npx react-native run-ios --d
 
 ### Android
 
-No Android config is needed. The toolkit's config plugin injects the audio-engine Maven repo and Prefab into the app automatically.
+No Android config is needed here. This example is a bare React Native app, so the audio-engine Maven
+repo, `prefab true`, and the NDK version are already committed in its [`build.gradle`](android/build.gradle)
+and [`app/build.gradle`](android/app/build.gradle).
+
+You need a running emulator or a connected device before building — unlike iOS, the Android CLI
+will not start one for you. Create an emulator in **Android Studio → Device Manager**, or connect a
+phone with USB debugging on. Check what's attached with `adb devices`; it should be listed as
+`device`, not `offline`.
 
 ```sh
-npm run android
+npm run android                     # the attached emulator or device
+npm run android -- --list-devices   # pick one, if several are attached
 ```
+
+In **your own Expo app** you write none of that by hand. Add the toolkit's config plugin to
+`app.json` and `npx expo prebuild` injects the same wiring into the generated `android/`. See
+[Getting started](../docs/getting-started.md#expo).
 
 ## 4. Try it
 
