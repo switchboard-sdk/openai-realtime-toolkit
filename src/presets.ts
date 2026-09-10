@@ -35,7 +35,7 @@ export const NOISY_PRESET: TurnPreset = {
   },
   bargeIn: {
     pauseTimeMs: 1200,
-    duckGain: 0.6, // soft duck
+    duckGain: 0.5, // soft duck
     duckTimeMs: 200,
   },
 }
