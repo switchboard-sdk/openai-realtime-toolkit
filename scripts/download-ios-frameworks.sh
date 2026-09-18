@@ -13,7 +13,7 @@
 #   ios/Frameworks/<Package>/ios/<Package>.xcframework (binary)
 set -euo pipefail
 
-SDK_VERSION="3.2.4"
+SDK_VERSION="3.2.7"
 BASE_URL="https://switchboard-sdk-public.s3.amazonaws.com/builds/release/${SDK_VERSION}/ios"
 
 PACKAGES=(SwitchboardSDK SwitchboardSileroVAD SwitchboardSmartTurn SwitchboardOnnx SwitchboardOpenAI)
@@ -25,19 +25,24 @@ mkdir -p "${FRAMEWORKS_DIR}"
 
 for pkg in "${PACKAGES[@]}"; do
   dest="${FRAMEWORKS_DIR}/${pkg}/ios"
-  if [ -d "${dest}/${pkg}.xcframework" ]; then
-    echo "✓ ${pkg} already present — skipping"
+  stamp="${dest}/.switchboard-version"
+  # The stamp makes the skip version-aware: bumping SDK_VERSION re-downloads
+  # instead of leaving a stale xcframework in place.
+  if [ -d "${dest}/${pkg}.xcframework" ] && [ "$(cat "${stamp}" 2>/dev/null)" = "${SDK_VERSION}" ]; then
+    echo "✓ ${pkg} ${SDK_VERSION} already present — skipping"
     continue
   fi
 
   echo "↓ Downloading ${pkg} (${SDK_VERSION})"
+  rm -rf "${dest}"
   mkdir -p "${dest}"
   tmp_zip="${dest}/${pkg}.zip"
-  curl -fsSL "${BASE_URL}/${pkg}.zip" -o "${tmp_zip}"
+  curl -fsSL "${BASE_URL}/${pkg}-ios-${SDK_VERSION}.zip" -o "${tmp_zip}"
 
   echo "  Extracting ${pkg}"
   unzip -oq "${tmp_zip}" -d "${dest}"
   rm -f "${tmp_zip}"
+  echo "${SDK_VERSION}" > "${stamp}"
 done
 
 echo "✓ Switchboard iOS frameworks ready in ios/Frameworks/"
